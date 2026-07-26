@@ -129,3 +129,122 @@ class TrackModel:
         frac = f - int(f)
         c0, c1 = self.signed_curvature[i0], self.signed_curvature[i1]
         return c0 + (c1 - c0) * frac
+
+
+class SimulatedReader:
+    def __init__(self):
+        self.track = TrackModel()
+        self._t0 = time.monotonic()
+        self._last_t = self._t0
+        self.pos_m = 0.0
+        self.speed_kmh = 200.0
+        self.completed_laps = 0
+        self.lap_start_t = self._t0
+        self.last_time_ms = 0
+        self.best_time_ms = 0
+        self._lap_quality = random.uniform(0.35, 0.9)
+        self._brake_state = 0.0
+        self._steer_state = 0.0
+        self.current_sector_index = 0
+        self.last_sector_time_ms = 0
+        self._sector_start_t = self._t0
+
+    def poll(self) -> Optional[Sample]:
+        now = time.monotonic()
+        dt = now - self._last_t
+        if dt < (1.0 / 60.0):
+            return None
+        self._last_t = now
+
+        # Lower quality -> brakes earlier (more lookahead) and leaves a bigger
+        # margin through the corner (lower corner_mult); higher quality
+        # brakes later and carries speed closer to the limit. Both compound
+        # over ~16 corners into a real lap-time gap, not just a cosmetic
+        # brake-trace difference.
+        lookahead = 30.0 + (1.0 - self._lap_quality) * 90.0
+        corner_mult = 0.87 + 0.15 * self._lap_quality
+
+        target_now = self.track.speed_at(self.pos_m) * corner_mult
+        target_ahead = self.track.speed_at(self.pos_m + lookahead) * corner_mult
+
+        gas = 0.0
+        if self.speed_kmh > target_ahead + 3:
+            deficit = min(1.0, (self.speed_kmh - target_ahead) / 100.0)
+            smoothing = 0.10 + 0.6 * self._lap_quality
+            self._brake_state += (deficit - self._brake_state) * smoothing
+            brake = max(0.0, min(1.0, self._brake_state))
+        else:
+            self._brake_state *= 0.55
+            brake = max(0.0, self._brake_state)
+            if self.speed_kmh < target_now - 2:
+                gas = min(1.0, (target_now - self.speed_kmh) / 40.0 + 0.3)
+            else:
+                gas = 0.55
+
+        accel_ms2 = gas * 6.0 - brake * 9.5 - 0.12
+        self.speed_kmh = max(45.0, self.speed_kmh + accel_ms2 * dt * 3.6)
+        prev_pos_m = self.pos_m
+        raw_pos_m = self.pos_m + (self.speed_kmh / 3.6) * dt
+
+        lap_wrapped = raw_pos_m >= self.track.length
+        self.pos_m = raw_pos_m - self.track.length if lap_wrapped else raw_pos_m
+
+        sector_bounds = (self.track.length / 3, self.track.length * 2 / 3)
+        for b in sector_bounds:
+            if prev_pos_m < b <= raw_pos_m:
+                self.last_sector_time_ms = int((now - self._sector_start_t) * 1000)
+                self.current_sector_index = (self.current_sector_index + 1) % 3
+                self._sector_start_t = now
+        if lap_wrapped:
+            self.last_sector_time_ms = int((now - self._sector_start_t) * 1000)
+            self.current_sector_index = 0
+            self._sector_start_t = now
+
+        norm_pos = self.pos_m / self.track.length
+        x, z = self.track.point_at(self.pos_m)
+
+        # Steering leads the curvature peak a little (turn-in before the
+        # apex, like a real driver) and is smoothed rather than snapping
+        # straight to target, for a plausible-looking trace -- not a real
+        # physics model.
+        target_steer = self.track.signed_curvature_at(self.pos_m + 8.0) * 5.0
+        self._steer_state += (target_steer - self._steer_state) * 0.15
+
+        current_time_ms = int((now - self.lap_start_t) * 1000)
+
+        if lap_wrapped:
+            self.completed_laps += 1
+            self.last_time_ms = current_time_ms
+            if self.best_time_ms == 0 or self.last_time_ms < self.best_time_ms:
+                self.best_time_ms = self.last_time_ms
+            self.lap_start_t = now
+            current_time_ms = 0
+            self._lap_quality = max(0.15, min(0.98, self._lap_quality + random.uniform(-0.25, 0.25)))
+
+        return Sample(
+            t=now - self._t0,
+            gas=gas,
+            brake=brake,
+            steer=self._steer_state,
+            speed_kmh=self.speed_kmh,
+            gear=4,
+            rpm=int(4000 + self.speed_kmh * 20),
+            x=float(x),
+            z=float(z),
+            norm_pos=norm_pos,
+            completed_laps=self.completed_laps,
+            current_time_ms=current_time_ms,
+            last_time_ms=self.last_time_ms,
+            best_time_ms=self.best_time_ms,
+            current_sector_index=self.current_sector_index,
+            last_sector_time_ms=self.last_sector_time_ms,
+            is_valid_lap=True,
+            in_pit=False,
+            in_pit_lane=False,
+            status="ACC_LIVE",
+            track="Circuit demo (simulateur)",
+            car_model="GT3 demo",
+        )
+
+    def close(self) -> None:
+        pass
