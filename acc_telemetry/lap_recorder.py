@@ -12,6 +12,7 @@ from .sample import Sample
 
 WRAP_HIGH = 0.9
 WRAP_LOW = 0.15
+MIN_SAMPLES_FOR_LAP = 30  # guards against spurious wraps (e.g. teleport in pits)
 
 
 @dataclass
@@ -42,7 +43,7 @@ class LapRecorder:
 
         if self._prev_norm_pos is not None:
             wrapped = self._prev_norm_pos > WRAP_HIGH and s.norm_pos < WRAP_LOW
-            if wrapped:
+            if wrapped and len(self._buffer.t) >= MIN_SAMPLES_FOR_LAP and not s.in_pit:
                 finished_lap = self._finalize_lap(s)
 
         self._buffer.t.append(s.t)
