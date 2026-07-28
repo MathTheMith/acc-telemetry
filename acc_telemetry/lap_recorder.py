@@ -65,6 +65,12 @@ class LapRecorder:
         finished.number = self._lap_counter
         finished.lap_time_ms = s.last_time_ms
         finished.valid = self._last_valid_flag
+        # Sample.t is a session-wide clock (seconds since the app started),
+        # not lap-relative -- rebase to 0 here so every consumer gets a
+        # plain per-lap timeline instead of an ever-growing offset.
+        if finished.t:
+            t0 = finished.t[0]
+            finished.t = [t - t0 for t in finished.t]
         self.completed_laps.append(finished)
         self._buffer = Lap()
         return finished
