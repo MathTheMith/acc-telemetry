@@ -60,3 +60,15 @@ class SessionStore:
         })
         self._write_summary()
         return path
+
+    def _write_summary(self) -> None:
+        valid_laps = [l for l in self._laps_meta if l["valid"]]
+        best = min(valid_laps, key=lambda l: l["lap_time_ms"]) if valid_laps else None
+        summary = {
+            "track": self.track,
+            "car": self.car,
+            "laps": self._laps_meta,
+            "best_lap": best,
+        }
+        with (self.dir / "session.json").open("w") as f:
+            json.dump(summary, f, indent=2)
