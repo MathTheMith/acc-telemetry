@@ -1,2 +1,4 @@
 pyaccsharedmemory==1.0.0
+PyQt5>=5.15
+pyqtgraph>=0.13
 numpy>=1.24
