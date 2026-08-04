@@ -135,3 +135,104 @@ class TelemetryWindow(QtWidgets.QMainWindow):
         splitter.addWidget(right)
 
         splitter.setSizes([850, 550])
+
+    # ------------------------------------------------------------ ticking --
+    def _tick(self) -> None:
+        # Drain every sample available since the last tick (the reader may
+        # produce data faster than the UI redraws) so no telemetry frame is
+        # skipped, then redraw once using the most recent one.
+        finished_laps = []
+        got_any = False
+        for _ in range(30):
+            s = self.reader.poll()
+            if s is None:
+                break
+            got_any = True
+            self._last_sample = s
+            finished = self._record_sample(s)
+            if finished is not None:
+                finished_laps.append(finished)
+
+        if got_any:
+            self._last_sample_time = time.monotonic()
+            self._refresh_ui(self._last_sample)
+            for lap in finished_laps:
+                self._on_lap_finished(lap)
+
+        connected = (time.monotonic() - self._last_sample_time) < CONNECTION_TIMEOUT_S
+        if connected:
+            self.status_label.setText("Connected to ACC")
+            self.status_label.setStyleSheet("color: lightgreen; font-weight: bold;")
+        else:
+            self.status_label.setText("Waiting for ACC data...")
+            self.status_label.setStyleSheet("color: orange; font-weight: bold;")
+
+    def _record_sample(self, s: Sample) -> Optional[Lap]:
+        finished = self.recorder.add_sample(s)
+        self.hist_t.append(s.t)
+        self.hist_gas.append(s.gas)
+        self.hist_brake.append(s.brake)
+        self.hist_speed.append(s.speed_kmh)
+        return finished
+
+    def _refresh_ui(self, s: Sample) -> None:
+        self.track_label.setText(f"Track: {s.track}")
+        self.car_label.setText(f"Car: {s.car_model}")
+        self.session_store.update_meta(s.track, s.car_model)
+        self.lap_count_label.setText(f"Lap: {s.completed_laps + 1}")
+        self.current_time_label.setText(format_lap_time(s.current_time_ms))
+        self.last_time_label.setText(f"Last lap: {format_lap_time(s.last_time_ms)}")
+        self.best_time_label.setText(f"Best lap: {format_lap_time(s.best_time_ms)}")
+
+        if s.last_time_ms > 0 and s.best_time_ms > 0:
+            delta_ms = s.last_time_ms - s.best_time_ms
+            if delta_ms <= 0:
+                self.delta_label.setText("Last lap = best lap")
+                self.delta_label.setStyleSheet("color: lightgreen;")
+            else:
+                self.delta_label.setText(f"+{delta_ms / 1000:.3f}s vs best")
+                self.delta_label.setStyleSheet("color: salmon;")
+
+        self._refresh_pedal_charts()
+
+        if self.viewing_lap is None:
+            self._refresh_live_map()
+
+    def _refresh_pedal_charts(self) -> None:
+        t = list(self.hist_t)
+        self.curve_gas.setData(t, list(self.hist_gas))
+        self.curve_brake.setData(t, list(self.hist_brake))
+        self.curve_speed.setData(t, list(self.hist_speed))
+        if t:
+            self.plot_pedals.setXRange(t[-1] - WINDOW_SECONDS, t[-1], padding=0)
+
+    def _refresh_live_map(self) -> None:
+        lap = self.recorder.current_lap
+        if not lap.x:
+            return
+        colors, sizes = lap_colors_and_sizes(lap.gas, lap.brake)
+        brushes = [pg.mkBrush(int(r), int(g), int(b)) for r, g, b in colors]
+        self.scatter_main.setData(x=lap.x, y=lap.z, brush=brushes, size=sizes, pen=None)
+        self.marker_car.setData(x=[lap.x[-1]], y=[lap.z[-1]])
+
+    def _on_lap_finished(self, lap: Lap) -> None:
+        self.session_store.save_lap(lap)
+        label = f"Lap {lap.number} - {format_lap_time(lap.lap_time_ms)}"
+        if not lap.valid:
+            label += " (invalid)"
+        self.lap_list.addItem(label)
+        self._refresh_best_ghost()
+
+        track, car = self.session_store.track, self.session_store.car
+        threading.Thread(
+            target=self.uploader.upload, args=(lap, track, car), daemon=True
+        ).start()
+
+    def _refresh_best_ghost(self) -> None:
+        best = self.recorder.best_lap
+        if best is None or not best.x:
+            self.scatter_best.clear()
+            return
+        colors, sizes = lap_colors_and_sizes(best.gas, best.brake)
+        brushes = [pg.mkBrush(int(r), int(g), int(b), 110) for r, g, b in colors]
+        self.scatter_best.setData(x=best.x, y=best.z, brush=brushes, size=sizes * 0.6, pen=None)
