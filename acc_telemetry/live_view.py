@@ -236,3 +236,30 @@ class TelemetryWindow(QtWidgets.QMainWindow):
         colors, sizes = lap_colors_and_sizes(best.gas, best.brake)
         brushes = [pg.mkBrush(int(r), int(g), int(b), 110) for r, g, b in colors]
         self.scatter_best.setData(x=best.x, y=best.z, brush=brushes, size=sizes * 0.6, pen=None)
+
+    # --------------------------------------------------------- lap review --
+    def _on_lap_selected(self, item: QtWidgets.QListWidgetItem) -> None:
+        row = self.lap_list.row(item)
+        if row < 0 or row >= len(self.recorder.completed_laps):
+            return
+        lap = self.recorder.completed_laps[row]
+        self.viewing_lap = lap
+        self.live_button.setEnabled(True)
+        self.marker_car.clear()
+
+        colors, sizes = lap_colors_and_sizes(lap.gas, lap.brake)
+        brushes = [pg.mkBrush(int(r), int(g), int(b)) for r, g, b in colors]
+        self.scatter_main.setData(x=lap.x, y=lap.z, brush=brushes, size=sizes, pen=None)
+        self.plot_map.setTitle(
+            f"Lap {lap.number} - {format_lap_time(lap.lap_time_ms)} "
+            f"(green=throttle, red=brake)"
+        )
+
+    def _show_live(self) -> None:
+        self.viewing_lap = None
+        self.live_button.setEnabled(False)
+        self.plot_map.setTitle("Track map - green=throttle, red=brake")
+
+    def closeEvent(self, event) -> None:
+        self.reader.close()
+        super().closeEvent(event)
