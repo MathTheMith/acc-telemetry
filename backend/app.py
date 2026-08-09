@@ -125,3 +125,26 @@ def create_lap():
     db.commit()
     return jsonify({"id": cur.lastrowid}), 201
 
+
+@app.route("/api/laps/<int:lap_id>", methods=["GET"])
+def get_lap(lap_id: int):
+    row = get_db().execute("SELECT * FROM laps WHERE id = ?", (lap_id,)).fetchone()
+    if row is None:
+        return jsonify({"error": "not found"}), 404
+    data = lap_summary_row(row)
+    data["samples"] = json.loads(row["samples_json"])
+    return jsonify(data)
+
+
+@app.route("/api/laps/<int:lap_id>", methods=["DELETE"])
+def delete_lap(lap_id: int):
+    db = get_db()
+    db.execute("DELETE FROM laps WHERE id = ?", (lap_id,))
+    db.commit()
+    return "", 204
+
+
+init_db()
+
+if __name__ == "__main__":
+    app.run(port=5000)
