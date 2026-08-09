@@ -1,0 +1,11 @@
+services:
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    volumes:
+      - telemetry-data:/data
+    ports:
+      - "127.0.0.1:5001:5000"
+
+volumes:
+  telemetry-data:
