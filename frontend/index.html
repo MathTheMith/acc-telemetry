@@ -56,9 +56,397 @@
   button, select{ font-family:inherit; }
   :focus-visible{ outline:2px solid var(--accent); outline-offset:2px; }
 
+  .app{ max-width:1360px; margin:0 auto; padding:20px 20px 48px; display:flex; flex-direction:column; gap:16px; }
 
+  .topbar{ display:flex; align-items:center; flex-wrap:wrap; gap:10px 20px; padding-bottom:14px; border-bottom:1px solid var(--border); }
+  .brand-group{ display:flex; align-items:center; gap:10px; }
+  .brand-badge{
+    width:32px; height:32px; border-radius:8px; flex-shrink:0;
+    background:linear-gradient(135deg,
+      var(--panel-2) 0%, var(--panel-2) 28%,
+      var(--accent) 28%, var(--accent) 44%,
+      #fff 44%, #fff 49%,
+      var(--stripe-red) 49%, var(--stripe-red) 65%,
+      var(--panel-2) 65%, var(--panel-2) 100%);
+    border:1px solid var(--border);
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.05);
+  }
+  .brand{ font-family:var(--font-display); font-weight:900; font-size:22px; letter-spacing:0.02em; white-space:nowrap; }
+  .brand span{ color:var(--accent); }
+  .filters{ display:flex; gap:10px; margin-left:auto; flex-wrap:wrap; }
+  .filters select{
+    background:var(--panel-2); color:var(--text); border:1px solid var(--border);
+    border-radius:6px; padding:7px 10px; font-size:12.5px; cursor:pointer;
+  }
+  .live-dot{ display:inline-flex; align-items:center; gap:6px; font-size:11.5px; color:var(--text-faint); }
+  .live-dot i{ width:7px; height:7px; border-radius:50%; background:var(--green); display:inline-block; }
+
+  .layout{ display:grid; grid-template-columns:300px 1fr; gap:16px; align-items:start; }
+  @media (max-width:860px){ .layout{ grid-template-columns:1fr; } }
+  .panel{ background:var(--panel); border:1px solid var(--border); border-radius:10px; }
+
+  .lap-list-panel{ padding:14px; display:flex; flex-direction:column; gap:10px; }
+  .panel-title{
+    font-family:var(--font-display); font-weight:700; font-size:13px; letter-spacing:0.05em;
+    text-transform:uppercase; color:var(--text-muted); display:flex; justify-content:space-between; align-items:center;
+  }
+  .panel-title .count{ color:var(--text-faint); font-weight:600; }
+
+  .lap-rows{ display:flex; flex-direction:column; gap:6px; max-height:70vh; overflow-y:auto; }
+  .lap-row{
+    display:flex; align-items:center; gap:8px; padding:8px 8px 8px 10px; border-radius:7px;
+    border:1px solid transparent; background:transparent; cursor:pointer;
+  }
+  .lap-row:hover{ background:var(--panel-2); }
+  .lap-row.selected{ background:var(--panel-3); border-color:rgba(232,163,61,0.4); box-shadow:inset 3px 0 0 var(--accent); }
+  .lap-row.invalid{ opacity:0.55; }
+  .lap-main{ all:unset; display:flex; align-items:center; gap:10px; flex:1; min-width:0; cursor:pointer; }
+  .lap-num{ font-family:var(--font-mono); font-size:12px; color:var(--text-faint); width:20px; text-align:right; flex-shrink:0; }
+  .lap-info{ display:flex; flex-direction:column; gap:2px; min-width:0; flex:1; }
+  .lap-time{ font-family:var(--font-mono); font-size:14px; font-weight:500; font-variant-numeric:tabular-nums; }
+  .lap-row.best .lap-time{ color:var(--purple); }
+  .lap-sub{ font-size:11px; color:var(--text-faint); display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+  .lap-flag{ font-size:10px; font-weight:600; letter-spacing:0.03em; text-transform:uppercase; padding:1px 5px; border-radius:4px; }
+  .lap-flag.best{ background:var(--purple-soft); color:var(--purple); }
+  .lap-flag.invalid{ background:var(--red-soft); color:var(--red); }
+  .lap-delta{ font-family:var(--font-mono); font-size:11.5px; flex-shrink:0; }
+  .lap-delta.pos{ color:var(--red); } .lap-delta.neg{ color:var(--green); } .lap-delta.zero{ color:var(--purple); }
+  .lap-delete{
+    all:unset; cursor:pointer; color:var(--text-faint); font-size:14px; padding:4px 6px; border-radius:5px; flex-shrink:0;
+  }
+  .lap-delete:hover{ color:var(--red); background:var(--red-soft); }
+
+  .legend-note{ font-size:11.5px; color:var(--text-faint); border-top:1px solid var(--border-soft); padding-top:10px; line-height:1.5; }
+
+  .stage{ display:flex; flex-direction:column; gap:14px; }
+
+  .tab-switch{ display:flex; gap:6px; }
+  .tab-btn{
+    all:unset; cursor:pointer; padding:7px 14px; border-radius:7px 7px 0 0;
+    font-family:var(--font-display); font-size:12.5px; font-weight:700; letter-spacing:0.03em;
+    color:var(--text-faint); background:transparent; border:1px solid transparent; border-bottom:none;
+  }
+  .tab-btn:hover{ color:var(--text-muted); }
+  .tab-btn.active{ color:var(--text); background:var(--panel); border-color:var(--border); }
+
+  .progression-panel{ display:none; padding:14px; flex-direction:column; gap:10px; }
+  body.tab-progression .progression-panel{ display:flex; }
+  body.tab-progression .lap-view{ display:none; }
+  #progressionCanvas{ width:100%; height:340px; display:block; cursor:crosshair; }
+  .progression-empty{ padding:30px 10px; text-align:center; color:var(--text-faint); font-size:13px; }
+
+  .stage-header{ padding:18px 20px; display:flex; flex-wrap:wrap; align-items:center; gap:20px; }
+  .hero-time{
+    font-family:var(--font-mono); font-weight:600; font-size:38px; letter-spacing:-0.01em;
+    font-variant-numeric:tabular-nums;
+    text-shadow: 0 0 18px rgba(232,163,61,0.35); /* pit-board LED glow */
+  }
+  .hero-meta{ display:flex; flex-direction:column; gap:4px; }
+  .hero-label{ font-family:var(--font-display); font-size:12px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; color:var(--text-muted); }
+  .hero-sub{ font-size:12.5px; color:var(--text-faint); }
+  .hero-delta{ font-family:var(--font-mono); font-size:17px; font-weight:600; padding:6px 12px; border-radius:7px; }
+  .hero-delta.pos{ color:var(--red); background:var(--red-soft); }
+  .hero-delta.neg{ color:var(--green); background:var(--green-soft); }
+  .hero-delta.zero{ color:var(--purple); background:var(--purple-soft); }
+  .ghost-toggle{ margin-left:auto; display:flex; align-items:center; gap:8px; font-size:12.5px; color:var(--text-muted); cursor:pointer; user-select:none; white-space:nowrap; }
+  .ghost-toggle input{ accent-color:var(--accent); width:15px; height:15px; cursor:pointer; }
+
+  .stat-row{ display:grid; grid-template-columns:repeat(5, 1fr); gap:10px; }
+  @media (max-width:720px){ .stat-row{ grid-template-columns:repeat(2,1fr); } }
+  .stat-tile{ padding:12px 14px; display:flex; flex-direction:column; gap:6px; }
+  .stat-label{ font-size:10.5px; font-weight:600; letter-spacing:0.06em; text-transform:uppercase; color:var(--text-faint); }
+  .stat-value{ font-family:var(--font-mono); font-size:19px; font-weight:500; font-variant-numeric:tabular-nums; }
+  .stat-value.purple{ color:var(--purple); }
+  .stat-chip{ display:inline-block; font-size:10px; font-weight:600; padding:1px 6px; border-radius:4px; margin-top:2px; width:fit-content; background:var(--purple-soft); color:var(--purple); }
+
+  /* Full-width stack rather than side-by-side: the pedal/speed traces read
+     the whole lap on one time axis, so they need every pixel of width they
+     can get -- squeezing them into half a column just to sit next to the
+     map made them look coarse regardless of how much data was behind them. */
+  .viz-grid{ display:flex; flex-direction:column; gap:14px; }
+  .viz-panel{ padding:14px; display:flex; flex-direction:column; gap:10px; }
+  .viz-head{ display:flex; align-items:center; justify-content:space-between; gap:10px; }
+  .viz-title{ font-family:var(--font-display); font-size:13px; font-weight:700; letter-spacing:0.04em; text-transform:uppercase; color:var(--text-muted); }
+  .swatch-legend{ display:flex; gap:12px; font-size:11.5px; color:var(--text-faint); }
+  .swatch{ display:inline-flex; align-items:center; gap:5px; }
+  .swatch i{ width:9px; height:9px; border-radius:2px; display:inline-block; }
+  .swatch.throttle i{ background:var(--green); }
+  .swatch.brake i{ background:var(--red); }
+  .swatch.steer i{ background:var(--steer); border-radius:50%; }
+  #deltaPanel .swatch.throttle i{ background:var(--green); }
+  #deltaPanel .swatch.brake i{ background:var(--red); }
+
+  .map-controls{ display:flex; align-items:center; gap:8px; margin-left:auto; }
+  .map-hint{ font-size:10.5px; color:var(--text-faint); white-space:nowrap; }
+  @media (max-width:860px){ .map-hint{ display:none; } }
+  .icon-btn{
+    all:unset; cursor:pointer; width:26px; height:26px; border-radius:6px;
+    display:inline-flex; align-items:center; justify-content:center;
+    background:var(--panel-2); border:1px solid var(--border); color:var(--text-muted);
+    font-size:14px; line-height:1;
+  }
+  .icon-btn:hover{ color:var(--text); border-color:var(--accent); }
+
+  .canvas-wrap{ position:relative; width:100%; border-radius:8px; overflow:hidden; background:var(--panel-2); border:1px solid var(--border-soft); }
+  #mapCanvas, #paceCanvas, #deltaCanvas{ cursor:grab; touch-action:none; }
+  #mapCanvas.grabbing, #paceCanvas.grabbing, #deltaCanvas.grabbing{ cursor:grabbing; }
+  #mapCanvas{ width:100%; height:460px; display:block; }
+  #paceCanvas{ width:100%; height:460px; display:block; }
+  #deltaCanvas{ width:100%; height:220px; display:block; }
+  @media (max-width:720px){
+    #mapCanvas{ height:360px; }
+    #paceCanvas{ height:360px; }
+    #deltaCanvas{ height:180px; }
+  }
+
+  /* ---------- focus mode: map ~75% of the screen, telemetry ~25% below ---------- */
+  body.focus-mode{ overflow:hidden; }
+  body.focus-mode .app{ max-width:none; padding:6px; height:100vh; }
+  body.focus-mode .topbar,
+  body.focus-mode .lap-list-panel,
+  body.focus-mode .stage-header,
+  body.focus-mode .stat-row,
+  body.focus-mode footer.hint{ display:none; }
+  body.focus-mode .layout{ grid-template-columns:1fr; height:100%; gap:0; }
+  body.focus-mode .stage{ height:100%; gap:8px; }
+  body.focus-mode .viz-grid{ height:100%; }
+  body.focus-mode .viz-panel{ min-height:0; padding:8px 10px; }
+  body.focus-mode .canvas-wrap{ flex:1; min-height:0; }
+  body.focus-mode #mapCanvas,
+  body.focus-mode #paceCanvas,
+  body.focus-mode #deltaCanvas{ height:100%; }
+  body.focus-mode .viz-grid > .panel:nth-of-type(1){ flex:3 1 0; }
+  body.focus-mode .viz-grid > .panel:nth-of-type(2),
+  body.focus-mode .viz-grid > .panel:nth-of-type(3){ flex:1 1 0; }
+
+  /* ---------- start-lights intro (once per browser session) ---------- */
+  .start-lights{
+    position:fixed; inset:0; z-index:9999; background:#05070A;
+    display:flex; align-items:center; justify-content:center;
+    transition:opacity 0.4s ease;
+  }
+  .start-lights.hide{ opacity:0; pointer-events:none; }
+  .lights-row{ display:flex; gap:16px; }
+  .light{
+    width:20px; height:20px; border-radius:50%;
+    background:#2A0A0D; box-shadow:inset 0 0 5px rgba(0,0,0,0.7);
+    transition:background 0.12s, box-shadow 0.12s;
+  }
+  .light.on{
+    background:var(--stripe-red);
+    box-shadow:0 0 18px 5px rgba(215,38,61,0.65), inset 0 0 4px rgba(0,0,0,0.3);
+  }
+  @media (prefers-reduced-motion: reduce){ .start-lights{ display:none; } }
+
+  .readout{ display:flex; flex-wrap:wrap; gap:16px; font-family:var(--font-mono); font-size:12px; color:var(--text-muted); padding:8px 2px 0; border-top:1px dashed var(--border-soft); margin-top:2px; }
+  .readout b{ color:var(--text); font-weight:500; }
+  .readout .rd-label{ color:var(--text-faint); font-family:var(--font-body); margin-right:4px; }
+
+  .empty-state{ padding:60px 20px; text-align:center; color:var(--text-muted); display:flex; flex-direction:column; gap:8px; align-items:center; }
+  .empty-state .big{ font-family:var(--font-display); font-size:16px; font-weight:700; color:var(--text); }
+
+  footer.hint{ text-align:center; color:var(--text-faint); font-size:11.5px; padding-top:6px; }
 </style>
 </head>
 <body>
+<div class="start-lights" id="startLights" aria-hidden="true">
+  <div class="lights-row">
+    <span class="light"></span><span class="light"></span><span class="light"></span>
+    <span class="light"></span><span class="light"></span>
+  </div>
+</div>
+<script>
+(function(){
+  var overlay = document.getElementById("startLights");
+  if(!overlay) return;
+  var reduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var seen = false;
+  try { seen = sessionStorage.getItem("apexTraceIntroShown") === "1"; } catch(e){}
+  if(reduced || seen){ overlay.remove(); return; }
+  try { sessionStorage.setItem("apexTraceIntroShown", "1"); } catch(e){}
+
+  var lights = overlay.querySelectorAll(".light");
+  var i = 0;
+  function step(){
+    if(i < lights.length){
+      lights[i].classList.add("on");
+      i++;
+      setTimeout(step, 200);
+    } else {
+      setTimeout(function(){
+        for(var k=0;k<lights.length;k++) lights[k].classList.remove("on");
+        setTimeout(function(){
+          overlay.classList.add("hide");
+          setTimeout(function(){ overlay.remove(); }, 450);
+        }, 200);
+      }, 350);
+    }
+  }
+  setTimeout(step, 150);
+})();
+</script>
+<div class="app">
+
+  <div class="topbar">
+    <div class="brand-group">
+      <div class="brand-badge" aria-hidden="true"></div>
+      <div class="brand">Apex <span>Trace</span></div>
+    </div>
+    <div class="filters">
+      <select id="trackFilter"><option value="">All circuits</option></select>
+      <select id="carFilter"><option value="">All cars</option></select>
+    </div>
+    <span class="live-dot"><i></i>connected</span>
+  </div>
+
+  <div class="layout">
+    <aside class="panel lap-list-panel">
+      <div class="panel-title">Recorded laps <span class="count" id="lapCount">0</span></div>
+      <div class="lap-rows" id="lapRows"></div>
+      <div class="legend-note">Click a lap to see its recap. The fastest lap in the current filter is used as the reference for the displayed gap.</div>
+    </aside>
+
+    <section class="stage" id="stage" style="display:none;">
+      <div class="tab-switch">
+        <button class="tab-btn active" id="tabLapBtn">Lap</button>
+        <button class="tab-btn" id="tabProgressionBtn">Progression</button>
+      </div>
+
+      <div class="panel progression-panel" id="progressionPanel">
+        <div class="viz-head">
+          <div class="viz-title">Progression <span id="progressionScope" class="hero-sub"></span></div>
+          <div class="swatch-legend">
+            <span class="swatch"><i style="background:var(--purple)"></i>record</span>
+            <span class="swatch"><i style="background:var(--text-faint)"></i>valid laps</span>
+          </div>
+        </div>
+        <div class="progression-empty" id="progressionEmpty" style="display:none;"></div>
+        <div class="canvas-wrap"><canvas id="progressionCanvas"></canvas></div>
+        <div class="readout" id="progressionReadout">
+          <span><span class="rd-label">Date</span><b id="prDate">—</b></span>
+          <span><span class="rd-label">Lap</span><b id="prTime">—</b></span>
+          <span><span class="rd-label">Car</span><b id="prCar">—</b></span>
+        </div>
+      </div>
+
+      <div class="panel stage-header lap-view">
+        <div class="hero-meta">
+          <div class="hero-label" id="lapTitle">Lap —</div>
+          <div class="hero-sub" id="lapSub">—</div>
+        </div>
+        <div class="hero-time" id="heroTime">--:--.---</div>
+        <div class="hero-delta" id="heroDelta">—</div>
+        <label class="ghost-toggle">
+          <input type="checkbox" id="ghostToggle" checked>
+          Compare to the fastest lap
+        </label>
+      </div>
+
+      <div class="stat-row lap-view">
+        <div class="panel stat-tile">
+          <div class="stat-label">Top speed</div>
+          <div class="stat-value" id="statTopSpeed">—</div>
+        </div>
+        <div class="panel stat-tile">
+          <div class="stat-label">Sector 1</div>
+          <div class="stat-value" id="statS1">—</div>
+          <div class="stat-chip" id="statS1Chip" style="visibility:hidden;">best</div>
+        </div>
+        <div class="panel stat-tile">
+          <div class="stat-label">Sector 2</div>
+          <div class="stat-value" id="statS2">—</div>
+          <div class="stat-chip" id="statS2Chip" style="visibility:hidden;">best</div>
+        </div>
+        <div class="panel stat-tile">
+          <div class="stat-label">Sector 3</div>
+          <div class="stat-value" id="statS3">—</div>
+          <div class="stat-chip" id="statS3Chip" style="visibility:hidden;">best</div>
+        </div>
+        <div class="panel stat-tile">
+          <div class="stat-label">Time on brakes</div>
+          <div class="stat-value" id="statBrakeTime">—</div>
+        </div>
+      </div>
+
+      <div class="viz-grid lap-view" id="vizGrid">
+        <div class="panel viz-panel">
+          <div class="viz-head">
+            <div class="viz-title">Track map</div>
+            <div class="swatch-legend">
+              <span class="swatch throttle"><i></i>throttle</span>
+              <span class="swatch brake"><i></i>brake</span>
+            </div>
+            <div class="map-controls">
+              <span class="map-hint">scroll/pinch: zoom · drag: pan</span>
+              <button class="icon-btn" id="zoomResetBtn" title="Reset zoom">↺</button>
+              <button class="icon-btn" id="focusBtn" title="Fullscreen">⛶</button>
+            </div>
+          </div>
+          <div class="canvas-wrap"><canvas id="mapCanvas"></canvas></div>
+        </div>
+
+        <div class="panel viz-panel">
+          <div class="viz-head">
+            <div class="viz-title">Pedal trace</div>
+            <div class="swatch-legend">
+              <span class="swatch throttle"><i></i>throttle</span>
+              <span class="swatch brake"><i></i>brake</span>
+              <span class="swatch steer"><i></i>steering</span>
+            </div>
+            <div class="map-controls">
+              <span class="map-hint">scroll/pinch: zoom · drag: pan</span>
+              <button class="icon-btn" id="paceZoomResetBtn" title="Reset zoom">↺</button>
+            </div>
+          </div>
+          <div class="canvas-wrap"><canvas id="paceCanvas"></canvas></div>
+          <div class="readout" id="readout">
+            <span><span class="rd-label">Time</span><b id="rdDist">—</b></span>
+            <span><span class="rd-label">Speed</span><b id="rdSpeed">—</b></span>
+            <span><span class="rd-label">Throttle</span><b id="rdGas">—</b></span>
+            <span><span class="rd-label">Brake</span><b id="rdBrake">—</b></span>
+            <span><span class="rd-label">Steering</span><b id="rdSteer">—</b></span>
+          </div>
+        </div>
+
+        <div class="panel viz-panel" id="deltaPanel" style="display:none;">
+          <div class="viz-head">
+            <div class="viz-title">Delta vs best lap</div>
+            <div class="swatch-legend">
+              <span class="swatch throttle"><i></i>ahead</span>
+              <span class="swatch brake"><i></i>behind</span>
+            </div>
+            <div class="map-controls">
+              <button class="icon-btn" id="deltaZoomResetBtn" title="Reset zoom">↺</button>
+            </div>
+          </div>
+          <div class="canvas-wrap"><canvas id="deltaCanvas"></canvas></div>
+        </div>
+      </div>
+
+      <footer class="hint lap-view">Hover the map or the trace to read the exact point — both views stay in sync.</footer>
+    </section>
+
+    <div class="panel empty-state" id="emptyState">
+      <svg class="empty-icon" width="52" height="52" viewBox="0 0 52 52" aria-hidden="true">
+        <line x1="14" y1="4" x2="14" y2="44" stroke="var(--text-faint)" stroke-width="2"/>
+        <rect x="14" y="8" width="7" height="6" fill="var(--text-faint)"/>
+        <rect x="28" y="8" width="7" height="6" fill="var(--text-faint)"/>
+        <rect x="21" y="14" width="7" height="6" fill="var(--text-faint)"/>
+        <rect x="35" y="14" width="7" height="6" fill="var(--text-faint)"/>
+        <rect x="14" y="20" width="7" height="6" fill="var(--text-faint)"/>
+        <rect x="28" y="20" width="7" height="6" fill="var(--text-faint)"/>
+        <rect x="21" y="8" width="7" height="6" fill="var(--text-muted)"/>
+        <rect x="35" y="8" width="7" height="6" fill="var(--text-muted)"/>
+        <rect x="14" y="14" width="7" height="6" fill="var(--text-muted)"/>
+        <rect x="28" y="14" width="7" height="6" fill="var(--text-muted)"/>
+        <rect x="21" y="20" width="7" height="6" fill="var(--text-muted)"/>
+        <rect x="35" y="20" width="7" height="6" fill="var(--text-muted)"/>
+      </svg>
+      <div class="big">No laps recorded yet</div>
+      <div>Run <code>python main.py</code> while ACC is running — every finished lap appears here automatically.</div>
+    </div>
+  </div>
+</div>
+
 </body>
 </html>
