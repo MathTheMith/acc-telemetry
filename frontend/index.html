@@ -448,5 +448,174 @@
   </div>
 </div>
 
+<script>
+(function(){
+  "use strict";
+  const $ = id => document.getElementById(id);
+
+  let allLaps = [];        // summaries from /api/laps for the current filter
+  let selectedSummary = null;
+  let selectedDetail = null;  // full samples for the selected lap
+  let bestSummary = null;
+  let bestDetail = null;      // full samples for the ghost overlay
+  let showGhost = true;
+  let hoverDist = null;
+  const mapView = { zoom: 1, panX: 0, panY: 0 }; // persists across lap switches on purpose
+  const paceView = { zoom: 1, panX: 0 };  // horizontal-only zoom, pace chart
+  const deltaView = { zoom: 1, panX: 0 }; // horizontal-only zoom, delta chart
+  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+  const detailCache = new Map(); // id -> full lap detail (avoid refetching)
+
+  async function fetchJSON(url, opts){
+    const res = await fetch(url, opts);
+    if(!res.ok) throw new Error(url + " -> " + res.status);
+    return res.status === 204 ? null : res.json();
+  }
+
+  async function getDetail(id){
+    if(detailCache.has(id)) return detailCache.get(id);
+    const detail = await fetchJSON("/api/laps/" + id);
+    detailCache.set(id, detail);
+    return detail;
+  }
+
+  function fmtTime(ms){
+    if(!ms || ms<=0) return "--:--.---";
+    const totalSec = ms/1000;
+    const m = Math.floor(totalSec/60);
+    const s = totalSec - m*60;
+    return m + ":" + s.toFixed(3).padStart(6,"0");
+  }
+  function fmtSector(ms){ return (ms==null) ? "—" : (ms/1000).toFixed(3)+"s"; }
+  function fmtDelta(deltaMs){
+    if(Math.abs(deltaMs) < 5) return {text:"reference lap", cls:"zero"};
+    const sign = deltaMs>0 ? "+" : "";
+    return { text: sign+(deltaMs/1000).toFixed(3)+"s", cls: deltaMs>0 ? "pos" : "neg" };
+  }
+  function fmtDate(iso){
+    try{
+      const d = new Date(iso.replace(" ","T")+"Z");
+      return d.toLocaleDateString("en-GB",{day:"2-digit",month:"2-digit"}) + " " +
+             d.toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"});
+    } catch(e){ return iso; }
+  }
+  function isoToMs(iso){
+    try{ return new Date(iso.replace(" ","T")+"Z").getTime(); } catch(e){ return 0; }
+  }
+  function fmtDateShort(ms){
+    return new Date(ms).toLocaleDateString("en-GB",{day:"2-digit",month:"2-digit",year:"2-digit"});
+  }
+
+  /* ================= filters ================= */
+  async function loadFilters(){
+    const combos = await fetchJSON("/api/tracks");
+    const tracks = [...new Set(combos.map(c=>c.track))];
+    const trackSel = $("trackFilter");
+    const prevTrack = trackSel.value;
+    trackSel.innerHTML = '<option value="">All circuits</option>' +
+      tracks.map(t=>`<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join("");
+    trackSel.value = prevTrack;
+
+    const carSel = $("carFilter");
+    const prevCar = carSel.value;
+    const cars = [...new Set(
+      combos.filter(c=>!trackSel.value || c.track===trackSel.value).map(c=>c.car)
+    )];
+    carSel.innerHTML = '<option value="">All cars</option>' +
+      cars.map(c=>`<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
+    carSel.value = prevCar;
+  }
+  function escapeHtml(s){ return (s||"").replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+
+  $("trackFilter").addEventListener("change", () => { loadFilters(); loadLaps(); });
+  $("carFilter").addEventListener("change", loadLaps);
+
+  /* ================= lap list ================= */
+  async function loadLaps(){
+    const track = $("trackFilter").value;
+    const car = $("carFilter").value;
+    const params = new URLSearchParams();
+    if(track) params.set("track", track);
+    if(car) params.set("car", car);
+
+    allLaps = await fetchJSON("/api/laps?" + params.toString());
+    $("lapCount").textContent = allLaps.length + " laps";
+
+    // Comparing lap times only makes sense within one circuit (lengths
+    // differ), so "best lap" / deltas only exist once a track is chosen.
+    const validLaps = allLaps.filter(l=>l.valid);
+    bestSummary = (track && validLaps.length)
+      ? validLaps.reduce((a,b)=> b.lap_time_ms < a.lap_time_ms ? b : a)
+      : null;
+
+    renderLapList();
+
+    if(allLaps.length === 0){
+      $("stage").style.display = "none";
+      $("emptyState").style.display = "flex";
+      selectedSummary = null;
+      return;
+    }
+    $("emptyState").style.display = "none";
+    $("stage").style.display = "flex";
+
+    // keep current selection if it's still in the list, else pick the best (or newest)
+    const stillThere = selectedSummary && allLaps.find(l=>l.id===selectedSummary.id);
+    await selectLap(stillThere ? selectedSummary : (bestSummary || allLaps[0]));
+  }
+
+  function renderLapList(){
+    const container = $("lapRows");
+    container.innerHTML = "";
+    allLaps.forEach(lap => {
+      const isBest = bestSummary && lap.id === bestSummary.id;
+      const row = document.createElement("div");
+      row.className = "lap-row" + (isBest ? " best" : "") + (!lap.valid ? " invalid" : "") +
+        (selectedSummary && selectedSummary.id===lap.id ? " selected" : "");
+
+      const delta = (lap.valid && bestSummary) ? fmtDelta(lap.lap_time_ms - bestSummary.lap_time_ms) : {text:"", cls:""};
+      row.innerHTML = `
+        <button class="lap-main">
+          <span class="lap-num">${lap.lap_number ?? "—"}</span>
+          <span class="lap-info">
+            <span class="lap-time">${fmtTime(lap.lap_time_ms)}</span>
+            <span class="lap-sub">
+              ${isBest ? '<span class="lap-flag best">Best</span>' : ""}
+              ${!lap.valid ? '<span class="lap-flag invalid">Off track</span>' : ""}
+              ${fmtDate(lap.recorded_at)} · ${escapeHtml(lap.track)} · ${escapeHtml(lap.car)}
+            </span>
+          </span>
+        </button>
+        <span class="lap-delta ${delta.cls}">${delta.text}</span>
+        <button class="lap-delete" title="Delete this lap" aria-label="Delete this lap">✕</button>
+      `;
+      row.querySelector(".lap-main").addEventListener("click", () => selectLap(lap));
+      row.querySelector(".lap-delete").addEventListener("click", (e) => { e.stopPropagation(); deleteLap(lap.id); });
+      container.appendChild(row);
+    });
+  }
+
+  async function deleteLap(id){
+    if(!confirm("Permanently delete this lap?")) return;
+    await fetchJSON("/api/laps/" + id, { method: "DELETE" });
+    detailCache.delete(id);
+    if(selectedSummary && selectedSummary.id===id) selectedSummary = null;
+    await loadLaps();
+  }
+
+  async function selectLap(summary){
+    selectedSummary = summary;
+    hoverDist = null;
+    selectedDetail = await getDetail(summary.id);
+    bestDetail = (bestSummary && bestSummary.id !== summary.id) ? await getDetail(bestSummary.id) : null;
+    renderLapList();
+    render();
+  }
+
+  $("ghostToggle").addEventListener("change", e => { showGhost = e.target.checked; render(); });
+
+})();
+</script>
 </body>
 </html>
