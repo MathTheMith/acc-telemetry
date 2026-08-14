@@ -615,6 +615,180 @@
 
   $("ghostToggle").addEventListener("change", e => { showGhost = e.target.checked; render(); });
 
+  /* ================= canvas setup ================= */
+  function setupCanvas(canvas){
+    const ctx = canvas.getContext("2d");
+    function resize(){
+      const rect = canvas.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = Math.max(1, Math.round(rect.width*dpr));
+      canvas.height = Math.max(1, Math.round(rect.height*dpr));
+      ctx.setTransform(dpr,0,0,dpr,0,0);
+      render();
+    }
+    new ResizeObserver(resize).observe(canvas);
+    resize();
+    return ctx;
+  }
+  const mapCanvas = $("mapCanvas"), paceCanvas = $("paceCanvas"), deltaCanvas = $("deltaCanvas");
+  const progressionCanvas = $("progressionCanvas");
+  let progressionCtx;
+  let progressionPoints = []; // [{ms, t (epoch ms), car}] for the currently plotted scope, for hover
+  let mapCtx, paceCtx, deltaCtx;
+
+  function pedalColor(gas, brake){
+    if(brake > 0.03){ const g = Math.round(255*(1-brake)*0.5); return `rgb(255,${g},${g+8})`; }
+    if(gas > 0.03){ const r = Math.round(255*(1-gas)*0.45); return `rgb(${r},255,${r+40})`; }
+    return "rgba(139,151,166,0.55)";
+  }
+  function pedalWidth(gas, brake, base){ return base + Math.max(gas,brake)*base*0.9; }
+
+  function mapBounds(laps){
+    let minX=Infinity,maxX=-Infinity,minY=Infinity,maxY=-Infinity;
+    laps.forEach(lap => lap.samples.forEach(s => {
+      minX=Math.min(minX,s.x); maxX=Math.max(maxX,s.x);
+      minY=Math.min(minY,s.z); maxY=Math.max(maxY,s.z);
+    }));
+    if(!isFinite(minX)){ minX=0; maxX=1; minY=0; maxY=1; }
+    return {minX,maxX,minY,maxY};
+  }
+
+  // Base "fit everything" transform, shared by drawMap and the pointer
+  // interaction code below (which needs to invert it to turn a mouse
+  // position back into world coordinates for hit-testing).
+  function mapBaseTransform(W, H){
+    const laps = [selectedDetail].concat((showGhost && bestDetail) ? [bestDetail] : []);
+    const {minX,maxX,minY,maxY} = mapBounds(laps);
+    const pad = 28;
+    const scale = Math.min((W-2*pad)/Math.max(1,maxX-minX), (H-2*pad)/Math.max(1,maxY-minY));
+    const ox = (W - (maxX-minX)*scale)/2 - minX*scale;
+    const oy = (H - (maxY-minY)*scale)/2 - minY*scale;
+    return {ox, oy, scale};
+  }
+
+  function drawMap(){
+    if(!selectedDetail) return;
+    const rect = mapCanvas.getBoundingClientRect();
+    const W = rect.width, H = rect.height;
+    mapCtx.clearRect(0,0,W,H);
+
+    const {ox, oy, scale} = mapBaseTransform(W, H);
+    const proj = (x,y) => [
+      (ox + x*scale) * mapView.zoom + mapView.panX,
+      (oy + y*scale) * mapView.zoom + mapView.panY,
+    ];
+
+    function drawLap(lap, alpha, baseWidth){
+      const s = lap.samples;
+      for(let i=0;i<s.length-1;i++){
+        const a = s[i], b = s[i+1];
+        const [ax,ay] = proj(a.x,a.z), [bx,by] = proj(b.x,b.z);
+        mapCtx.strokeStyle = pedalColor(a.gas,a.brake);
+        mapCtx.globalAlpha = alpha;
+        mapCtx.lineWidth = pedalWidth(a.gas,a.brake, baseWidth);
+        mapCtx.lineCap = "round";
+        mapCtx.beginPath();
+        mapCtx.moveTo(ax,ay); mapCtx.lineTo(bx,by);
+        mapCtx.stroke();
+      }
+      mapCtx.globalAlpha = 1;
+    }
+
+    if(showGhost && bestDetail) drawLap(bestDetail, 0.35, 2.2);
+    drawLap(selectedDetail, 1, 3.2);
+
+    if(hoverDist!=null){
+      const sample = nearestSampleByDist(selectedDetail.samples, hoverDist);
+      if(sample){
+        const [px,py] = proj(sample.x, sample.z);
+        mapCtx.beginPath(); mapCtx.arc(px,py,6,0,Math.PI*2);
+        mapCtx.fillStyle = "#E8A33D"; mapCtx.fill();
+        mapCtx.lineWidth = 2; mapCtx.strokeStyle = "#0B0F14"; mapCtx.stroke();
+      }
+    }
+
+    const start = selectedDetail.samples[0];
+    const [sx,sy] = proj(start.x, start.z);
+    mapCtx.fillStyle = "#E7ECF2";
+    mapCtx.font = "600 11px IBM Plex Sans";
+    mapCtx.fillText("Start / finish", sx+8, sy-8);
+    mapCtx.beginPath(); mapCtx.arc(sx,sy,3.5,0,Math.PI*2); mapCtx.fill();
+  }
+
+  function lapDuration(detail){ return detail.samples[detail.samples.length-1].t; }
+
+  function drawPace(){
+    if(!selectedDetail) return;
+    const rect = paceCanvas.getBoundingClientRect();
+    const W = rect.width, H = rect.height;
+    paceCtx.clearRect(0,0,W,H);
+    const padL=6, padR=6, padT=14, padB=14;
+    const plotW = W-padL-padR, plotH = H-padT-padB;
+    const mid = padT + plotH/2;
+
+    paceCtx.strokeStyle = "#1C2530";
+    paceCtx.lineWidth = 1;
+    [0,0.25,0.5,0.75,1].forEach(f=>{
+      const y = padT + plotH*f;
+      paceCtx.beginPath(); paceCtx.moveTo(padL,y); paceCtx.lineTo(W-padR,y); paceCtx.stroke();
+    });
+    paceCtx.strokeStyle = "#2A3542";
+    paceCtx.beginPath(); paceCtx.moveTo(padL,mid); paceCtx.lineTo(W-padR,mid); paceCtx.stroke();
+
+    paceCtx.fillStyle = "#5C6774";
+    paceCtx.font = "600 10px IBM Plex Sans";
+    paceCtx.textBaseline = "alphabetic";
+    paceCtx.fillText("THROTTLE", padL, padT-3);
+    paceCtx.textBaseline = "top";
+    paceCtx.fillText("BRAKE", padL, H-padB+3);
+
+    const s = selectedDetail.samples;
+    const lapLen = lapDuration(selectedDetail);
+    const xOf = t => (padL + (t/lapLen)*plotW) * paceView.zoom + paceView.panX;
+
+    paceCtx.save();
+    paceCtx.beginPath();
+    paceCtx.rect(padL, padT, plotW, plotH);
+    paceCtx.clip();
+
+    function drawSeries(getVal, color, sign){
+      paceCtx.beginPath();
+      paceCtx.moveTo(xOf(s[0].t), mid);
+      for(let i=0;i<s.length;i++) paceCtx.lineTo(xOf(s[i].t), mid - sign*getVal(s[i])*(plotH/2));
+      paceCtx.lineTo(xOf(s[s.length-1].t), mid);
+      paceCtx.closePath();
+      paceCtx.fillStyle = color;
+      paceCtx.fill();
+    }
+    drawSeries(d=>d.gas, "rgba(62,207,107,0.75)", 1);
+    drawSeries(d=>d.brake, "rgba(255,84,104,0.75)", -1);
+
+    // Steering overlaid as a thin signed line on the same zero baseline
+    // (right = up, left = down here -- sign convention unverified against
+    // real ACC data, flip in reader.py if it comes out backwards) --
+    // normalized per-lap so it's about *shape and timing* relative to the
+    // brake trace, not an absolute angle.
+    const maxSteer = Math.max(1e-6, ...s.map(d => Math.abs(d.steer || 0)));
+    paceCtx.beginPath();
+    s.forEach((d,i) => {
+      const x = xOf(d.t), y = mid - (d.steer||0)/maxSteer*(plotH/2);
+      if(i===0) paceCtx.moveTo(x,y); else paceCtx.lineTo(x,y);
+    });
+    paceCtx.strokeStyle = "#5EC8F2";
+    paceCtx.lineWidth = 1.4;
+    paceCtx.stroke();
+
+    if(hoverDist!=null){
+      const sample = nearestSampleByDist(s, hoverDist);
+      if(sample){
+        const x = xOf(sample.t);
+        paceCtx.strokeStyle = "#E8A33D"; paceCtx.lineWidth = 1.5;
+        paceCtx.beginPath(); paceCtx.moveTo(x,padT); paceCtx.lineTo(x,H-padB); paceCtx.stroke();
+      }
+    }
+    paceCtx.restore();
+  }
+
 })();
 </script>
 </body>
