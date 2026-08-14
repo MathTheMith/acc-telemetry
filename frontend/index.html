@@ -789,6 +789,575 @@
     paceCtx.restore();
   }
 
+  /* ================= delta vs reference lap ================= */
+  // Classic MoTeC-style "where am I gaining/losing time" trace: both laps'
+  // (norm_pos -> t) are interpolated onto a common position grid, so the
+  // comparison lines up by track position even though the two laps have
+  // different sample counts/timings.
+  function interpAt(xs, ys, x){
+    if(x <= xs[0]) return ys[0];
+    if(x >= xs[xs.length-1]) return ys[ys.length-1];
+    let lo=0, hi=xs.length-1;
+    while(hi-lo>1){ const mid=(lo+hi)>>1; if(xs[mid]<=x) lo=mid; else hi=mid; }
+    const f = (x-xs[lo])/(xs[hi]-xs[lo]);
+    return ys[lo] + (ys[hi]-ys[lo])*f;
+  }
+
+  function computeDelta(gridN){
+    if(!bestDetail || bestDetail===selectedDetail) return null;
+    const ref = bestDetail.samples, cur = selectedDetail.samples;
+    const refPos = ref.map(s=>s.norm_pos), refT = ref.map(s=>s.t);
+    const curPos = cur.map(s=>s.norm_pos), curT = cur.map(s=>s.t);
+    const points = [];
+    for(let i=0;i<=gridN;i++){
+      const p = i/gridN;
+      points.push({ pos: p, delta: interpAt(curPos, curT, p) - interpAt(refPos, refT, p) });
+    }
+    return points;
+  }
+
+  function drawDelta(){
+    const points = computeDelta(240);
+    if(!points) return;
+    const rect = deltaCanvas.getBoundingClientRect();
+    const W = rect.width, H = rect.height;
+    deltaCtx.clearRect(0,0,W,H);
+    const padL=6, padR=6, padT=16, padB=16;
+    const plotW = W-padL-padR, plotH = H-padT-padB;
+    const mid = padT + plotH/2;
+    const maxAbs = Math.max(0.3, ...points.map(p=>Math.abs(p.delta)));
+    const xOf = pos => (padL + pos*plotW) * deltaView.zoom + deltaView.panX;
+    const yOf = delta => mid + (delta/maxAbs)*(plotH/2);
+
+    deltaCtx.strokeStyle = "#1C2530"; deltaCtx.lineWidth = 1;
+    [0,0.25,0.5,0.75,1].forEach(f=>{
+      const y = padT + plotH*f;
+      deltaCtx.beginPath(); deltaCtx.moveTo(padL,y); deltaCtx.lineTo(W-padR,y); deltaCtx.stroke();
+    });
+    deltaCtx.strokeStyle = "#2A3542";
+    deltaCtx.beginPath(); deltaCtx.moveTo(padL,mid); deltaCtx.lineTo(W-padR,mid); deltaCtx.stroke();
+
+    deltaCtx.fillStyle = "#5C6774";
+    deltaCtx.font = "600 10px IBM Plex Sans";
+    deltaCtx.textBaseline = "alphabetic";
+    deltaCtx.fillText("EN AVANCE", padL, padT-4);
+    deltaCtx.textBaseline = "top";
+    deltaCtx.fillText("EN RETARD", padL, H-padB+4);
+
+    deltaCtx.save();
+    deltaCtx.beginPath();
+    deltaCtx.rect(padL, padT, plotW, plotH);
+    deltaCtx.clip();
+
+    for(let i=0;i<points.length-1;i++){
+      const a = points[i], b = points[i+1];
+      deltaCtx.fillStyle = (a.delta+b.delta) < 0 ? "rgba(62,207,107,0.5)" : "rgba(255,84,104,0.5)";
+      deltaCtx.beginPath();
+      deltaCtx.moveTo(xOf(a.pos), mid);
+      deltaCtx.lineTo(xOf(a.pos), yOf(a.delta));
+      deltaCtx.lineTo(xOf(b.pos), yOf(b.delta));
+      deltaCtx.lineTo(xOf(b.pos), mid);
+      deltaCtx.closePath();
+      deltaCtx.fill();
+    }
+    deltaCtx.beginPath();
+    points.forEach((p,i)=>{ const x=xOf(p.pos), y=yOf(p.delta); if(i===0) deltaCtx.moveTo(x,y); else deltaCtx.lineTo(x,y); });
+    deltaCtx.strokeStyle = "#E7ECF2"; deltaCtx.lineWidth = 1.5; deltaCtx.stroke();
+    deltaCtx.restore();
+
+    if(hoverDist!=null && selectedDetail){
+      const sample = nearestSampleByDist(selectedDetail.samples, hoverDist);
+      if(sample){
+        const x = xOf(sample.norm_pos);
+        const d = interpAt(points.map(p=>p.pos), points.map(p=>p.delta), sample.norm_pos);
+        deltaCtx.strokeStyle = "#E8A33D"; deltaCtx.lineWidth = 1.5;
+        deltaCtx.beginPath(); deltaCtx.moveTo(x,padT); deltaCtx.lineTo(x,H-padB); deltaCtx.stroke();
+        const label = (d<=0?"":"+") + d.toFixed(3) + "s";
+        deltaCtx.fillStyle = d<0 ? "#3ECF6B" : "#FF5468";
+        deltaCtx.font = "600 12px IBM Plex Mono";
+        deltaCtx.textAlign = x > W-70 ? "right" : "left";
+        deltaCtx.fillText(label, x > W-70 ? x-6 : x+6, padT+12);
+        deltaCtx.textAlign = "left";
+      }
+    }
+  }
+
+  /* ================= progression over time ================= */
+  // Best-lap-per-circuit trend across every session ever recorded for the
+  // current track/car filter -- reuses `allLaps`, which already holds the
+  // full history for that filter (no extra API calls needed).
+  let progressionHover = null;
+  function drawProgression(){
+    const track = $("trackFilter").value;
+    const car = $("carFilter").value;
+    $("progressionScope").textContent = track ? ("— " + track + (car ? " · " + car : "")) : "";
+
+    const emptyEl = $("progressionEmpty");
+    const wrap = progressionCanvas.parentElement;
+
+    if(!track){
+      emptyEl.textContent = "Pick a circuit in the filters above to see your progression (comparing times across different circuits wouldn't make sense).";
+      emptyEl.style.display = "block"; wrap.style.display = "none";
+      progressionPoints = [];
+      return;
+    }
+
+    const laps = allLaps.filter(l=>l.valid).slice()
+      .sort((a,b)=> isoToMs(a.recorded_at) - isoToMs(b.recorded_at));
+
+    if(laps.length < 2){
+      emptyEl.textContent = `Not enough valid laps on this filter yet for a progression chart (${laps.length} so far, at least 2 needed).`;
+      emptyEl.style.display = "block"; wrap.style.display = "none";
+      progressionPoints = [];
+      return;
+    }
+    emptyEl.style.display = "none"; wrap.style.display = "block";
+    if(!progressionCtx) return;
+
+    const times = laps.map(l=>isoToMs(l.recorded_at));
+    progressionPoints = laps.map((l,i)=>({ ms: l.lap_time_ms, t: times[i], car: l.car, date: l.recorded_at }));
+
+    const rect = progressionCanvas.getBoundingClientRect();
+    const W = rect.width, H = rect.height;
+    progressionCtx.clearRect(0,0,W,H);
+    const padL=60, padR=16, padT=16, padB=26;
+    const plotW = W-padL-padR, plotH = H-padT-padB;
+
+    const minT = Math.min(...times), maxT = Math.max(...times);
+    const tSpan = Math.max(1, maxT-minT);
+    const rawMin = Math.min(...laps.map(l=>l.lap_time_ms));
+    const rawMax = Math.max(...laps.map(l=>l.lap_time_ms));
+    const msPad = Math.max(200, (rawMax-rawMin)*0.15);
+    const loMs = rawMin - msPad, hiMs = rawMax + msPad;
+    const msSpan = Math.max(1, hiMs-loMs);
+
+    const xOf = t => padL + ((t-minT)/tSpan)*plotW;
+    const yOf = ms => padT + (1 - (ms-loMs)/msSpan)*plotH;
+
+    progressionCtx.strokeStyle = "#1C2530"; progressionCtx.lineWidth = 1;
+    [0,0.25,0.5,0.75,1].forEach(f=>{
+      const y = padT+plotH*f;
+      progressionCtx.beginPath(); progressionCtx.moveTo(padL,y); progressionCtx.lineTo(W-padR,y); progressionCtx.stroke();
+    });
+
+    progressionCtx.fillStyle = "#8B97A6";
+    progressionCtx.font = "500 10px IBM Plex Mono";
+    progressionCtx.textAlign = "right"; progressionCtx.textBaseline = "middle";
+    [0,0.5,1].forEach(f=>{
+      const ms = hiMs - f*msSpan;
+      progressionCtx.fillText(fmtTime(ms), padL-8, padT+plotH*f);
+    });
+    progressionCtx.textAlign = "left"; progressionCtx.textBaseline = "alphabetic";
+    progressionCtx.fillStyle = "#5C6774";
+    progressionCtx.font = "500 10px IBM Plex Sans";
+    progressionCtx.fillText(fmtDateShort(minT), padL, H-8);
+    progressionCtx.textAlign = "right";
+    progressionCtx.fillText(fmtDateShort(maxT), W-padR, H-8);
+    progressionCtx.textAlign = "left";
+
+    // Step-line: the record as it stood at each point in time.
+    let best = Infinity;
+    const steps = [];
+    laps.forEach((l,i) => {
+      if(l.lap_time_ms < best){
+        if(best !== Infinity) steps.push({t: times[i], ms: best});
+        best = l.lap_time_ms;
+        steps.push({t: times[i], ms: best});
+      }
+    });
+    steps.push({t: maxT, ms: best});
+    progressionCtx.beginPath();
+    steps.forEach((p,i)=>{ const x=xOf(p.t), y=yOf(p.ms); if(i===0) progressionCtx.moveTo(x,y); else progressionCtx.lineTo(x,y); });
+    progressionCtx.strokeStyle = "#A855F7"; progressionCtx.lineWidth = 2; progressionCtx.stroke();
+
+    // Every valid lap as a dot; the overall record gets highlighted.
+    laps.forEach((l,i) => {
+      const x = xOf(times[i]), y = yOf(l.lap_time_ms);
+      const isRecord = l.lap_time_ms === best;
+      progressionCtx.beginPath();
+      progressionCtx.arc(x, y, isRecord ? 5 : 3.5, 0, Math.PI*2);
+      progressionCtx.fillStyle = isRecord ? "#A855F7" : "rgba(139,151,166,0.7)";
+      progressionCtx.fill();
+      if(isRecord){ progressionCtx.lineWidth=1.5; progressionCtx.strokeStyle="#0B0F14"; progressionCtx.stroke(); }
+    });
+
+    if(progressionHover != null){
+      const p = progressionPoints[progressionHover];
+      const x = xOf(p.t), y = yOf(p.ms);
+      progressionCtx.strokeStyle = "#E8A33D"; progressionCtx.lineWidth = 1.5;
+      progressionCtx.beginPath(); progressionCtx.moveTo(x,padT); progressionCtx.lineTo(x,H-padB); progressionCtx.stroke();
+      $("prDate").textContent = fmtDate(p.date);
+      $("prTime").textContent = fmtTime(p.ms);
+      $("prCar").textContent = p.car;
+    } else {
+      $("prDate").textContent = "—"; $("prTime").textContent = "—"; $("prCar").textContent = "—";
+    }
+  }
+
+  progressionCanvas.addEventListener("mousemove", e => {
+    if(!progressionPoints.length) return;
+    const rect = progressionCanvas.getBoundingClientRect();
+    const padL=60, padR=16;
+    const plotW = rect.width-padL-padR;
+    const mx = e.clientX - rect.left;
+    const times = progressionPoints.map(p=>p.t);
+    const minT = Math.min(...times), maxT = Math.max(...times);
+    const targetT = minT + clamp((mx-padL)/plotW, 0, 1)*(maxT-minT);
+    let best=0, bestD=Infinity;
+    times.forEach((t,i) => { const d=Math.abs(t-targetT); if(d<bestD){bestD=d; best=i;} });
+    progressionHover = best;
+    drawProgression();
+  });
+  progressionCanvas.addEventListener("mouseleave", () => { progressionHover=null; drawProgression(); });
+
+  /* ================= hover ================= */
+  function nearestSampleByDist(samples, dist){
+    // samples[].t is monotonic; hoverDist is stored as a "t" value directly here
+    let lo=0, hi=samples.length-1;
+    while(lo<hi){ const mid=(lo+hi)>>1; if(samples[mid].t < dist) lo=mid+1; else hi=mid; }
+    return samples[lo];
+  }
+
+  function nearestSampleByNormPos(samples, pos){
+    let lo=0, hi=samples.length-1;
+    while(lo<hi){ const mid=(lo+hi)>>1; if(samples[mid].norm_pos < pos) lo=mid+1; else hi=mid; }
+    return samples[lo];
+  }
+
+  function updateReadout(){
+    if(hoverDist==null || !selectedDetail){
+      ["rdDist","rdSpeed","rdGas","rdBrake","rdSteer"].forEach(id => $(id).textContent = "—");
+      return;
+    }
+    const sample = nearestSampleByDist(selectedDetail.samples, hoverDist);
+    if(!sample) return;
+    $("rdDist").textContent = sample.t.toFixed(1) + " s";
+    $("rdSpeed").textContent = Math.round(sample.speed_kmh) + " km/h";
+    $("rdGas").textContent = Math.round(sample.gas*100) + " %";
+    $("rdBrake").textContent = Math.round(sample.brake*100) + " %";
+
+    const maxSteer = Math.max(1e-6, ...selectedDetail.samples.map(d => Math.abs(d.steer || 0)));
+    const pct = Math.round(Math.abs(sample.steer||0)/maxSteer*100);
+    $("rdSteer").textContent = pct < 3 ? "straight" : `${pct}% ${sample.steer>0 ? "right" : "left"}`;
+  }
+
+  // Horizontal-only zoom/pan for a 1D time-series chart (pace/delta): wheel
+  // and pinch zoom toward the cursor, drag to pan, tap (touch) or plain
+  // mouse-move (no button) to inspect a point via `onFrac(0..1 across the
+  // chart's own x-domain)`. Shares the same interaction language as the map.
+  function attachChartZoomPan(canvas, view, onFrac){
+    const PAD_L = 6, PAD_R = 6;
+    const plotWidth = () => canvas.getBoundingClientRect().width - PAD_L - PAD_R;
+    const fracAt = clientX => {
+      const rect = canvas.getBoundingClientRect();
+      const mx = clientX - rect.left;
+      return ((mx - view.panX)/view.zoom - PAD_L) / plotWidth();
+    };
+    function clampPan(){
+      if(view.zoom <= 1){ view.zoom = 1; view.panX = 0; return; }
+      const plotW = plotWidth();
+      const left = PAD_L*view.zoom + view.panX;
+      const right = (PAD_L+plotW)*view.zoom + view.panX;
+      if(left > PAD_L) view.panX += (PAD_L-left);
+      else if(right < PAD_L+plotW) view.panX += (PAD_L+plotW-right);
+    }
+
+    const pointers = new Map();
+    let drag = null, pinch = null;
+
+    canvas.addEventListener("pointerdown", e => {
+      canvas.setPointerCapture(e.pointerId);
+      pointers.set(e.pointerId, {x:e.clientX});
+      if(pointers.size === 1){ drag = {x:e.clientX, moved:false}; canvas.classList.add("grabbing"); }
+      else if(pointers.size === 2){
+        const xs = [...pointers.values()].map(p=>p.x);
+        pinch = { dist: Math.max(1,Math.abs(xs[0]-xs[1])), zoom: view.zoom, panX: view.panX,
+                  mid: (xs[0]+xs[1])/2 - canvas.getBoundingClientRect().left };
+        drag = null;
+      }
+    });
+
+    canvas.addEventListener("pointermove", e => {
+      if(!pointers.has(e.pointerId)){
+        if(e.pointerType === "mouse") onFrac(clamp(fracAt(e.clientX), 0, 1));
+        return;
+      }
+      pointers.set(e.pointerId, {x:e.clientX});
+      if(pointers.size === 1 && drag){
+        const dx = e.clientX - drag.x;
+        if(Math.abs(dx) > 3) drag.moved = true;
+        view.panX += dx; drag.x = e.clientX;
+        clampPan(); render();
+      } else if(pointers.size === 2 && pinch){
+        const xs = [...pointers.values()].map(p=>p.x);
+        const dist = Math.max(1, Math.abs(xs[0]-xs[1]));
+        const newZoom = clamp(pinch.zoom*(dist/pinch.dist), 1, 30);
+        const contentX = (pinch.mid - pinch.panX)/pinch.zoom;
+        view.zoom = newZoom;
+        view.panX = pinch.mid - contentX*newZoom;
+        clampPan(); render();
+      }
+    });
+
+    function end(e){
+      if(pointers.size===1 && drag && !drag.moved && e.pointerType!=="mouse"){
+        onFrac(clamp(fracAt(e.clientX), 0, 1));
+      }
+      pointers.delete(e.pointerId);
+      if(pointers.size<2) pinch=null;
+      if(pointers.size===0){ drag=null; canvas.classList.remove("grabbing"); }
+    }
+    canvas.addEventListener("pointerup", end);
+    canvas.addEventListener("pointercancel", end);
+    canvas.addEventListener("pointerleave", () => { if(pointers.size===0){ hoverDist=null; render(); } });
+
+    canvas.addEventListener("wheel", e => {
+      e.preventDefault();
+      const rect = canvas.getBoundingClientRect();
+      const mx = e.clientX-rect.left;
+      const factor = e.deltaY<0 ? 1.15 : 1/1.15;
+      const newZoom = clamp(view.zoom*factor, 1, 30);
+      const contentX = (mx-view.panX)/view.zoom;
+      view.zoom = newZoom;
+      view.panX = mx - contentX*newZoom;
+      clampPan(); render();
+    }, {passive:false});
+
+    canvas.addEventListener("dblclick", () => { view.zoom=1; view.panX=0; render(); });
+  }
+
+  // Nearest sample to a raw (unzoomed/unpanned) canvas-pixel position --
+  // shared by hover and tap-to-inspect.
+  function nearestSampleAtBasePixel(px, py){
+    if(!selectedDetail) return null;
+    let best=null, bestD=Infinity;
+    const rect = mapCanvas.getBoundingClientRect();
+    const {ox, oy, scale} = mapBaseTransform(rect.width, rect.height);
+    selectedDetail.samples.forEach(s => {
+      const sx = ox + s.x*scale, sy = oy + s.z*scale;
+      const d = (sx-px)*(sx-px) + (sy-py)*(sy-py);
+      if(d<bestD){ bestD=d; best=s; }
+    });
+    return best;
+  }
+  // Screen (client) coords -> "base" canvas-pixel coords, i.e. undoing the
+  // current zoom/pan so hit-testing can reuse the un-zoomed projection.
+  function screenToBase(clientX, clientY){
+    const rect = mapCanvas.getBoundingClientRect();
+    const mx = clientX-rect.left, my = clientY-rect.top;
+    return { x: (mx-mapView.panX)/mapView.zoom, y: (my-mapView.panY)/mapView.zoom, mx, my };
+  }
+
+  const mapPointers = new Map(); // pointerId -> {x,y} in client coords
+  let mapDrag = null;    // {x,y,moved} while a single pointer is down
+  let mapPinch = null;   // {dist,zoom,panX,panY,midX,midY} while two pointers are down
+
+  mapCanvas.addEventListener("pointerdown", e => {
+    mapCanvas.setPointerCapture(e.pointerId);
+    mapPointers.set(e.pointerId, {x:e.clientX, y:e.clientY});
+    if(mapPointers.size === 1){
+      mapDrag = {x:e.clientX, y:e.clientY, moved:false};
+      mapCanvas.classList.add("grabbing");
+    } else if(mapPointers.size === 2){
+      const pts = [...mapPointers.values()];
+      const rect = mapCanvas.getBoundingClientRect();
+      mapPinch = {
+        dist: Math.hypot(pts[0].x-pts[1].x, pts[0].y-pts[1].y),
+        zoom: mapView.zoom, panX: mapView.panX, panY: mapView.panY,
+        midX: (pts[0].x+pts[1].x)/2 - rect.left, midY: (pts[0].y+pts[1].y)/2 - rect.top,
+      };
+      mapDrag = null;
+    }
+  });
+
+  mapCanvas.addEventListener("pointermove", e => {
+    if(!mapPointers.has(e.pointerId)){
+      // No button/finger down: plain hover, mouse only.
+      if(e.pointerType === "mouse" && selectedDetail){
+        const base = screenToBase(e.clientX, e.clientY);
+        const sample = nearestSampleAtBasePixel(base.x, base.y);
+        if(sample) hoverDist = sample.t;
+        render();
+      }
+      return;
+    }
+    mapPointers.set(e.pointerId, {x:e.clientX, y:e.clientY});
+
+    if(mapPointers.size === 1 && mapDrag){
+      const dx = e.clientX - mapDrag.x, dy = e.clientY - mapDrag.y;
+      if(Math.abs(dx) > 3 || Math.abs(dy) > 3) mapDrag.moved = true;
+      mapView.panX += dx; mapView.panY += dy;
+      mapDrag.x = e.clientX; mapDrag.y = e.clientY;
+      render();
+    } else if(mapPointers.size === 2 && mapPinch){
+      const pts = [...mapPointers.values()];
+      const dist = Math.hypot(pts[0].x-pts[1].x, pts[0].y-pts[1].y);
+      const newZoom = clamp(mapPinch.zoom * (dist/mapPinch.dist), 1, 8);
+      const contentX = (mapPinch.midX - mapPinch.panX)/mapPinch.zoom;
+      const contentY = (mapPinch.midY - mapPinch.panY)/mapPinch.zoom;
+      mapView.zoom = newZoom;
+      mapView.panX = mapPinch.midX - contentX*newZoom;
+      mapView.panY = mapPinch.midY - contentY*newZoom;
+      render();
+    }
+  });
+
+  function mapPointerEnd(e){
+    if(mapPointers.size === 1 && mapDrag && !mapDrag.moved && e.pointerType !== "mouse"){
+      // A tap (touch/pen) that didn't drag -- treat like a hover click so
+      // touch users can still inspect a point, not just pan.
+      const base = screenToBase(e.clientX, e.clientY);
+      const sample = nearestSampleAtBasePixel(base.x, base.y);
+      if(sample) hoverDist = sample.t;
+      render();
+    }
+    mapPointers.delete(e.pointerId);
+    if(mapPointers.size < 2) mapPinch = null;
+    if(mapPointers.size === 0){ mapDrag = null; mapCanvas.classList.remove("grabbing"); }
+  }
+  mapCanvas.addEventListener("pointerup", mapPointerEnd);
+  mapCanvas.addEventListener("pointercancel", mapPointerEnd);
+  mapCanvas.addEventListener("pointerleave", e => {
+    if(mapPointers.size === 0){ hoverDist=null; render(); }
+  });
+
+  mapCanvas.addEventListener("wheel", e => {
+    e.preventDefault();
+    const rect = mapCanvas.getBoundingClientRect();
+    const mx = e.clientX-rect.left, my = e.clientY-rect.top;
+    const factor = e.deltaY < 0 ? 1.15 : 1/1.15;
+    const newZoom = clamp(mapView.zoom*factor, 1, 8);
+    const contentX = (mx-mapView.panX)/mapView.zoom;
+    const contentY = (my-mapView.panY)/mapView.zoom;
+    mapView.zoom = newZoom;
+    mapView.panX = mx - contentX*newZoom;
+    mapView.panY = my - contentY*newZoom;
+    render();
+  }, {passive:false});
+
+  function resetMapView(){ mapView.zoom=1; mapView.panX=0; mapView.panY=0; render(); }
+  mapCanvas.addEventListener("dblclick", resetMapView);
+  $("zoomResetBtn").addEventListener("click", resetMapView);
+
+  /* ================= focus mode (map big, telemetry ~25% below) ================= */
+  const focusBtn = $("focusBtn");
+  function setFocusMode(on){
+    document.body.classList.toggle("focus-mode", on);
+    focusBtn.textContent = on ? "✕" : "⛶";
+    focusBtn.title = on ? "Exit fullscreen" : "Fullscreen";
+    if(on && $("vizGrid").requestFullscreen){
+      $("vizGrid").requestFullscreen().catch(()=>{});
+    } else if(!on && document.fullscreenElement){
+      document.exitFullscreen?.().catch(()=>{});
+    }
+    render();
+  }
+  focusBtn.addEventListener("click", () => setFocusMode(!document.body.classList.contains("focus-mode")));
+  document.addEventListener("fullscreenchange", () => {
+    if(!document.fullscreenElement) setFocusMode(false);
+  });
+
+  attachChartZoomPan(paceCanvas, paceView, frac => {
+    if(!selectedDetail) return;
+    hoverDist = frac * lapDuration(selectedDetail);
+    render();
+  });
+  attachChartZoomPan(deltaCanvas, deltaView, frac => {
+    if(!selectedDetail) return;
+    const sample = nearestSampleByNormPos(selectedDetail.samples, frac);
+    if(sample) hoverDist = sample.t;
+    render();
+  });
+  $("paceZoomResetBtn").addEventListener("click", () => { paceView.zoom=1; paceView.panX=0; render(); });
+  $("deltaZoomResetBtn").addEventListener("click", () => { deltaView.zoom=1; deltaView.panX=0; render(); });
+
+  /* ================= header / stats ================= */
+  function renderHeader(){
+    if(!selectedSummary || !selectedDetail) return;
+    const isBest = bestSummary && selectedSummary.id === bestSummary.id;
+    $("lapTitle").textContent = "Lap " + (selectedSummary.lap_number ?? "—") + (isBest ? " — reference" : "");
+    $("lapSub").textContent = selectedSummary.car + " · " + selectedSummary.track + " · " + fmtDate(selectedSummary.recorded_at);
+    $("heroTime").textContent = fmtTime(selectedSummary.lap_time_ms);
+
+    const deltaEl = $("heroDelta");
+    if(!selectedSummary.valid){
+      deltaEl.textContent = "Invalid lap (off track)";
+      deltaEl.className = "hero-delta pos";
+    } else if(bestSummary){
+      const d = fmtDelta(selectedSummary.lap_time_ms - bestSummary.lap_time_ms);
+      deltaEl.textContent = d.text;
+      deltaEl.className = "hero-delta " + d.cls;
+    } else {
+      deltaEl.textContent = "—"; deltaEl.className = "hero-delta";
+    }
+
+    const topSpeed = Math.max(...selectedDetail.samples.map(s=>s.speed_kmh));
+    $("statTopSpeed").textContent = Math.round(topSpeed) + " km/h";
+
+    const brakePct = selectedDetail.samples.filter(s=>s.brake>0.05).length / selectedDetail.samples.length;
+    $("statBrakeTime").textContent = Math.round(brakePct*100) + " %";
+
+    const sectors = selectedSummary.sectors_ms || [];
+    const validLaps = allLaps.filter(l=>l.valid && l.sectors_ms && l.sectors_ms.length===3);
+    const bestSectors = [0,1,2].map(i => validLaps.length ? Math.min(...validLaps.map(l=>l.sectors_ms[i])) : null);
+
+    [0,1,2].forEach(i=>{
+      const el = $("statS"+(i+1)), chip = $("statS"+(i+1)+"Chip");
+      const v = sectors[i];
+      el.textContent = fmtSector(v);
+      const isBestSector = selectedSummary.valid && v!=null && bestSectors[i]!=null && v === bestSectors[i];
+      el.className = "stat-value" + (isBestSector ? " purple" : "");
+      chip.style.visibility = isBestSector ? "visible" : "hidden";
+    });
+
+    $("ghostToggle").parentElement.style.visibility = isBest ? "hidden" : "visible";
+  }
+
+  function render(){
+    drawProgression();
+    if(!mapCtx || !paceCtx || !deltaCtx) return;
+    drawMap(); drawPace(); renderHeader(); updateReadout();
+
+    const showDelta = showGhost && bestDetail && bestDetail !== selectedDetail;
+    $("deltaPanel").style.display = showDelta ? "flex" : "none";
+    if(showDelta) drawDelta();
+  }
+
+  function setTab(tab){
+    document.body.classList.toggle("tab-progression", tab === "progression");
+    $("tabLapBtn").classList.toggle("active", tab === "lap");
+    $("tabProgressionBtn").classList.toggle("active", tab === "progression");
+    render();
+  }
+  $("tabLapBtn").addEventListener("click", () => setTab("lap"));
+  $("tabProgressionBtn").addEventListener("click", () => setTab("progression"));
+
+  mapCtx = setupCanvas(mapCanvas);
+  paceCtx = setupCanvas(paceCanvas);
+  deltaCtx = setupCanvas(deltaCanvas);
+  progressionCtx = setupCanvas(progressionCanvas);
+
+  /* ================= boot + live refresh ================= */
+  (async function init(){
+    await loadFilters();
+    // Land on the circuit/car of the most recent lap so "best lap" and
+    // deltas are meaningful right away, instead of the ambiguous "all
+    // circuits mixed together" view.
+    try {
+      const recent = await fetchJSON("/api/laps");
+      if(recent.length){
+        $("trackFilter").value = recent[0].track;
+        await loadFilters();
+        $("carFilter").value = recent[0].car;
+      }
+    } catch(e){ console.error(e); }
+    await loadLaps();
+  })();
+
+  // New laps land while you're driving -- keep the list current automatically.
+  setInterval(async () => {
+    try { await loadFilters(); await loadLaps(); } catch(e){ console.error(e); }
+  }, 4000);
 })();
 </script>
 </body>
