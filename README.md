@@ -111,3 +111,33 @@ unreachable (no network, closed port...), that's fine: the lap is still
 saved to CSV locally as before, only the upload to the site is missed for
 that lap.
 
+## Testing without ACC (simulator mode)
+
+Before plugging in the wheel, you can check that everything works with a
+fake driver going around a made-up circuit:
+
+```bash
+python main.py --sim
+```
+
+Each simulated lap has a different random "trail braking quality", so
+you'll see the track map change shape (more or less progressive braking)
+from lap to lap - a good way to check the color coding is readable before
+actually driving.
+
+## Using with ACC (Windows)
+
+1. Install Python 3.10+ on the Windows machine running ACC.
+2. In the project folder:
+   ```
+   pip install -r requirements.txt
+   python main.py
+   ```
+3. Launch ACC, go on track (practice/hotlap/race). The status in the top
+   right switches from "Waiting for ACC data..." to "Connected to ACC".
+4. Drive: the throttle/brake curves scroll live, the track map draws live
+   for the current lap.
+5. At the end of each lap, it appears in the "Laps" list on the right.
+   Double-click a lap to display it on the map instead of live (compared
+   against the best lap shown faded in the background).
+
