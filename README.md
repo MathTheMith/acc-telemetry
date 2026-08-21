@@ -141,3 +141,14 @@ actually driving.
    Double-click a lap to display it on the map instead of live (compared
    against the best lap shown faded in the background).
 
+## Building the .exe (do this once, on Windows)
+
+Double-click `build_exe.bat` (or run it from a terminal). It creates a
+virtual environment, installs the dependencies, then generates
+`dist\ACC_Telemetry.exe`. You can then launch that .exe directly, without
+needing to reopen a Python terminal.
+
+The `.exe` isn't included in the repo: PyInstaller compiles for the
+platform it runs on, so it needs to be built once on the Windows machine
+that will run the app.
+
