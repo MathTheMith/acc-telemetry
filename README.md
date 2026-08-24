@@ -152,3 +152,19 @@ The `.exe` isn't included in the repo: PyInstaller compiles for the
 platform it runs on, so it needs to be built once on the Windows machine
 that will run the app.
 
+## Known limitations / possible next steps
+
+- The Shared Memory parsing follows the structure documented by
+  `pyaccsharedmemory` at the time of writing: if a field changed in a
+  recent ACC version, `acc_telemetry/reader.py` will need to be adjusted
+  accordingly.
+- The site runs over plain HTTP, no domain name or HTTPS in front of
+  Nginx for now — plenty for personal/friends use, but worth keeping in
+  mind if the site becomes publicly accessible.
+- No "live delta" position-by-position MoTeC-style yet while driving (the
+  site shows the delta once the lap is finished) - could be added if
+  useful.
+- No direct wheel/pedal reading (deliberately not needed here, see
+  above) - if you ever want to compare the raw hardware input to what ACC
+  actually applies (deadzone/linearity), that can be added separately via
+  DirectInput.
