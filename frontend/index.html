@@ -199,7 +199,8 @@
     #deltaCanvas{ height:180px; }
   }
 
-  /* ---------- focus mode: map ~75% of the screen, telemetry ~25% below ---------- */
+  /* ---------- focus mode: map ~75% of the screen, telemetry ~25% below,
+     both draggable via #focusResizer between 10% and 90% ---------- */
   body.focus-mode{ overflow:hidden; }
   body.focus-mode .app{ max-width:none; padding:6px; height:100vh; }
   body.focus-mode .topbar,
@@ -215,9 +216,21 @@
   body.focus-mode #mapCanvas,
   body.focus-mode #paceCanvas,
   body.focus-mode #deltaCanvas{ height:100%; }
-  body.focus-mode .viz-grid > .panel:nth-of-type(1){ flex:3 1 0; }
-  body.focus-mode .viz-grid > .panel:nth-of-type(2),
-  body.focus-mode .viz-grid > .panel:nth-of-type(3){ flex:1 1 0; }
+  body.focus-mode .viz-panel-map{ flex:0 0 var(--focus-map-pct, 75%); }
+  body.focus-mode .viz-panel-telemetry,
+  body.focus-mode #deltaPanel{ flex:1 1 0; min-height:0; }
+
+  .focus-resizer{ display:none; }
+  body.focus-mode .focus-resizer{
+    display:flex; align-items:center; justify-content:center;
+    flex:0 0 14px; margin:0; cursor:row-resize; touch-action:none;
+  }
+  .focus-resizer::after{
+    content:""; width:44px; height:4px; border-radius:2px;
+    background:var(--border); transition:background 0.15s;
+  }
+  .focus-resizer:hover::after,
+  .focus-resizer.dragging::after{ background:var(--accent); }
 
   /* ---------- start-lights intro (once per browser session) ---------- */
   .start-lights{
@@ -369,7 +382,7 @@
       </div>
 
       <div class="viz-grid lap-view" id="vizGrid">
-        <div class="panel viz-panel">
+        <div class="panel viz-panel viz-panel-map">
           <div class="viz-head">
             <div class="viz-title">Track map</div>
             <div class="swatch-legend">
@@ -385,7 +398,9 @@
           <div class="canvas-wrap"><canvas id="mapCanvas"></canvas></div>
         </div>
 
-        <div class="panel viz-panel">
+        <div class="focus-resizer" id="focusResizer" title="Drag to resize (double-click to reset)"></div>
+
+        <div class="panel viz-panel viz-panel-telemetry">
           <div class="viz-head">
             <div class="viz-title">Pedal trace</div>
             <div class="swatch-legend">
@@ -1256,6 +1271,43 @@
   document.addEventListener("fullscreenchange", () => {
     if(!document.fullscreenElement) setFocusMode(false);
   });
+
+  // Drag the handle between the map and the telemetry panels in focus mode
+  // to resize one against the other (10-90%), remembered across visits.
+  const vizGrid = $("vizGrid");
+  const focusResizer = $("focusResizer");
+  const DEFAULT_FOCUS_SPLIT = 75;
+  let focusSplitPct = DEFAULT_FOCUS_SPLIT;
+  try {
+    const saved = parseFloat(localStorage.getItem("apexTraceFocusSplit"));
+    if(!isNaN(saved)) focusSplitPct = clamp(saved, 10, 90);
+  } catch(e){}
+
+  function applyFocusSplit(pct){
+    focusSplitPct = clamp(pct, 10, 90);
+    vizGrid.style.setProperty("--focus-map-pct", focusSplitPct + "%");
+    try { localStorage.setItem("apexTraceFocusSplit", focusSplitPct); } catch(e){}
+  }
+  applyFocusSplit(focusSplitPct);
+
+  let resizingFocus = false;
+  focusResizer.addEventListener("pointerdown", e => {
+    resizingFocus = true;
+    focusResizer.setPointerCapture(e.pointerId);
+    focusResizer.classList.add("dragging");
+  });
+  focusResizer.addEventListener("pointermove", e => {
+    if(!resizingFocus) return;
+    const rect = vizGrid.getBoundingClientRect();
+    applyFocusSplit((e.clientY - rect.top) / rect.height * 100);
+  });
+  function endFocusResize(){
+    resizingFocus = false;
+    focusResizer.classList.remove("dragging");
+  }
+  focusResizer.addEventListener("pointerup", endFocusResize);
+  focusResizer.addEventListener("pointercancel", endFocusResize);
+  focusResizer.addEventListener("dblclick", () => applyFocusSplit(DEFAULT_FOCUS_SPLIT));
 
   attachChartZoomPan(paceCanvas, paceView, frac => {
     if(!selectedDetail) return;
