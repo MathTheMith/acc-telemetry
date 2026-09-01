@@ -112,8 +112,8 @@ def create_lap():
         """INSERT INTO laps (track, car, lap_number, lap_time_ms, valid, top_speed_kmh, sectors_ms, samples_json)
            VALUES (?,?,?,?,?,?,?,?)""",
         (
-            payload.get("track", "inconnu"),
-            payload.get("car", "inconnu"),
+            payload.get("track", "unknown"),
+            payload.get("car", "unknown"),
             payload.get("number"),
             payload.get("lap_time_ms", 0),
             1 if payload.get("valid", True) else 0,
