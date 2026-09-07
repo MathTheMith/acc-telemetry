@@ -2,6 +2,8 @@ services:
   backend:
     build: ./backend
     restart: unless-stopped
+    environment:
+      - API_KEY=${API_KEY:-}
     volumes:
       - telemetry-data:/data
     ports:

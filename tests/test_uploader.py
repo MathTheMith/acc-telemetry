@@ -21,6 +21,9 @@ class _CapturingHandler(BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length", 0))
         body = self.rfile.read(length)
         _CapturingHandler.captured = {
+            # header lookup is case-insensitive here, unlike a plain dict --
+            # urllib normalizes "X-API-Key" to "X-api-key" on the wire.
+            "api_key": self.headers.get("X-API-Key"),
             "payload": json.loads(body) if body else None,
         }
         self.send_response(200)
@@ -47,6 +50,19 @@ def test_upload_success_posts_the_lap_payload():
         assert _CapturingHandler.captured["payload"]["track"] == "Spa"
         assert _CapturingHandler.captured["payload"]["lap_time_ms"] == 90_000
         assert len(_CapturingHandler.captured["payload"]["samples"]) == 2
+        assert _CapturingHandler.captured["api_key"] is None
+    finally:
+        server.shutdown()
+
+
+def test_upload_sends_api_key_header_when_configured(monkeypatch):
+    monkeypatch.setenv("ACC_API_KEY", "secret123")
+    server = run_capturing_server()
+    try:
+        url = f"http://127.0.0.1:{server.server_port}/api/laps"
+        uploader = LapUploader(url=url)
+        uploader.upload(make_lap(), track="Spa", car="GT3 demo")
+        assert _CapturingHandler.captured["api_key"] == "secret123"
     finally:
         server.shutdown()
 

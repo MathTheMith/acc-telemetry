@@ -611,9 +611,21 @@
     });
   }
 
+  function getApiKey(){ try { return localStorage.getItem("apexTraceApiKey") || ""; } catch(e){ return ""; } }
+  function setApiKey(key){ try { localStorage.setItem("apexTraceApiKey", key); } catch(e){} }
+
   async function deleteLap(id){
     if(!confirm("Permanently delete this lap?")) return;
-    await fetchJSON("/api/laps/" + id, { method: "DELETE" });
+    const key = getApiKey();
+    let res = await fetch("/api/laps/" + id, { method: "DELETE", headers: key ? {"X-API-Key": key} : {} });
+    if(res.status === 401){
+      const entered = prompt("This server requires an API key to delete laps. Enter it:");
+      if(!entered) return;
+      res = await fetch("/api/laps/" + id, { method: "DELETE", headers: {"X-API-Key": entered} });
+      if(res.status === 401){ alert("Wrong API key."); return; }
+      setApiKey(entered);
+    }
+    if(!res.ok){ alert("Could not delete this lap (" + res.status + ")."); return; }
     detailCache.delete(id);
     if(selectedSummary && selectedSummary.id===id) selectedSummary = null;
     await loadLaps();
