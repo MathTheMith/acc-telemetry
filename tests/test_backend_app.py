@@ -6,6 +6,7 @@ import pytest
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "test.db"))
+    monkeypatch.delenv("API_KEY", raising=False)
     import app as backend_app
     importlib.reload(backend_app)
     return backend_app.app.test_client()
@@ -69,3 +70,28 @@ def test_filter_by_track_and_car(client):
 
     res = client.get("/api/tracks")
     assert sorted(t["track"] for t in res.get_json()) == ["Monza", "Spa"]
+
+
+def test_write_endpoints_require_api_key_when_configured(tmp_path, monkeypatch):
+    monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "test.db"))
+    monkeypatch.setenv("API_KEY", "secret123")
+    import app as backend_app
+    importlib.reload(backend_app)
+    client = backend_app.app.test_client()
+
+    payload = {"track": "Spa", "car": "GT3", "lap_time_ms": 1000}
+
+    res = client.post("/api/laps", json=payload)
+    assert res.status_code == 401
+
+    res = client.post("/api/laps", json=payload, headers={"X-API-Key": "secret123"})
+    assert res.status_code == 201
+    lap_id = res.get_json()["id"]
+
+    assert client.delete(f"/api/laps/{lap_id}").status_code == 401
+    assert client.delete(f"/api/laps/{lap_id}", headers={"X-API-Key": "wrong"}).status_code == 401
+    assert client.delete(f"/api/laps/{lap_id}", headers={"X-API-Key": "secret123"}).status_code == 204
+
+    # Reads stay open even when a key is configured -- only writes are gated.
+    assert client.get("/api/laps").status_code == 200
+    assert client.get("/api/health").status_code == 200

@@ -8,16 +8,33 @@ its own).
 """
 from __future__ import annotations
 
+import hmac
 import json
 import os
 import sqlite3
+from functools import wraps
 from pathlib import Path
 
 from flask import Flask, g, jsonify, request
 
 DB_PATH = Path(os.environ.get("DATABASE_PATH", "/data/telemetry.db"))
 
+# Optional: set API_KEY to require a matching X-API-Key header on the
+# write endpoints (create/delete). Reads stay open -- browsing the
+# dashboard isn't sensitive, losing or forging laps is. Empty/unset
+# disables auth entirely, so existing deployments keep working as-is.
+API_KEY = os.environ.get("API_KEY", "").strip()
+
 app = Flask(__name__)
+
+
+def require_api_key(fn):
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        if API_KEY and not hmac.compare_digest(request.headers.get("X-API-Key", ""), API_KEY):
+            return jsonify({"error": "unauthorized"}), 401
+        return fn(*args, **kwargs)
+    return wrapper
 
 
 def get_db() -> sqlite3.Connection:
@@ -102,6 +119,7 @@ def list_tracks():
 
 
 @app.route("/api/laps", methods=["POST"])
+@require_api_key
 def create_lap():
     payload = request.get_json(force=True)
     samples = payload.get("samples", [])
@@ -137,6 +155,7 @@ def get_lap(lap_id: int):
 
 
 @app.route("/api/laps/<int:lap_id>", methods=["DELETE"])
+@require_api_key
 def delete_lap(lap_id: int):
     db = get_db()
     db.execute("DELETE FROM laps WHERE id = ?", (lap_id,))
