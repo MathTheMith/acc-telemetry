@@ -111,6 +111,32 @@ unreachable (no network, closed port...), that's fine: the lap is still
 saved to CSV locally as before, only the upload to the site is missed for
 that lap.
 
+### Restricting write access (optional API key)
+
+By default, anyone who can reach the site can also delete laps or push
+fake ones -- fine for personal/friends use, but worth locking down once
+the port is reachable from the internet. Set an `API_KEY` and the backend
+will require a matching `X-API-Key` header on `POST`/`DELETE /api/laps`
+(reading/browsing stays open):
+
+1. Create a `.env` file next to `docker-compose.yml`:
+   ```
+   API_KEY=<a random string>
+   ```
+   `make up` / `make restart` picks it up automatically (Docker Compose
+   reads `.env` on its own). `.env` is gitignored -- never commit it.
+2. On the Windows machine running ACC, set the matching key before
+   launching `main.py`:
+   ```
+   set ACC_API_KEY=<the same random string>
+   python main.py
+   ```
+3. In the browser dashboard, deleting a lap prompts for the key the first
+   time and remembers it locally afterwards.
+
+Leaving `API_KEY` unset disables this entirely (the previous, open
+behavior).
+
 ## Testing without ACC (simulator mode)
 
 Before plugging in the wheel, you can check that everything works with a
