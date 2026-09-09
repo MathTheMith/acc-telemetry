@@ -30,9 +30,11 @@ lap.
 ## The web site (dashboard viewable in the browser)
 
 The dashboard (list of all laps, filterable by circuit/car, full recap on
-click: time, sectors, color-coded track map, pedal/speed trace) runs in
-Docker: Nginx exposes a single port and serves the site, and proxies
-`/api/*` to a backend container that is never exposed directly.
+click: time, sectors, color-coded track map, pedal/speed trace, and a
+fullscreen focus mode with a draggable split between the map and the
+telemetry) runs in Docker: Nginx exposes a single port and serves the
+site, and proxies `/api/*` to a backend container that is never exposed
+directly.
 
 ```
 ACC machine / another device
@@ -177,6 +179,17 @@ needing to reopen a Python terminal.
 The `.exe` isn't included in the repo: PyInstaller compiles for the
 platform it runs on, so it needs to be built once on the Windows machine
 that will run the app.
+
+## Development
+
+Unit tests cover lap splitting, track-map coloring, session storage, and
+the backend API (`pytest`, see `tests/`). GitHub Actions runs them on
+every push (`.github/workflows/ci.yml`).
+
+```bash
+pip install -r requirements-test.txt
+pytest
+```
 
 ## Known limitations / possible next steps
 
