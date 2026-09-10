@@ -3,6 +3,7 @@
 Usage:
     python main.py            # real ACC shared memory (Windows + ACC running)
     python main.py --sim      # simulator, no ACC/wheel needed (demo/test)
+    python main.py --mini     # small always-on-top throttle/brake overlay
 """
 from __future__ import annotations
 
@@ -37,6 +38,10 @@ def main() -> None:
         "--sim", action="store_true", help="use the simulator instead of ACC"
     )
     parser.add_argument(
+        "--mini", action="store_true",
+        help="small always-on-top throttle/brake overlay instead of the full dashboard",
+    )
+    parser.add_argument(
         "--sessions-dir", default="sessions", help="directory where laps are saved"
     )
     args = parser.parse_args()
@@ -45,7 +50,11 @@ def main() -> None:
     session_store = SessionStore(args.sessions_dir, track="waiting", car="waiting")
 
     app = QtWidgets.QApplication(sys.argv)
-    window = TelemetryWindow(reader, session_store)
+    if args.mini:
+        from acc_telemetry.overlay import OverlayWindow
+        window = OverlayWindow(reader, session_store)
+    else:
+        window = TelemetryWindow(reader, session_store)
     window.show()
     sys.exit(app.exec_())
 

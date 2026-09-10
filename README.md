@@ -169,6 +169,23 @@ actually driving.
    Double-click a lap to display it on the map instead of live (compared
    against the best lap shown faded in the background).
 
+### Mini overlay (throttle/brake only, on top while driving)
+
+```
+python main.py --mini
+```
+
+A small, borderless, always-on-top window with just the scrolling
+throttle/brake trace -- meant to sit on screen while you drive, like a
+simracing HUD widget. Drag anywhere to move it, drag the bottom-right
+corner to resize, click the ✕ to close. Lap recording and upload to the
+dashboard keep working exactly as in the full window, only the UI changes.
+`run_mini.bat` launches it directly (double-click, no terminal needed).
+
+Note: this only overlays ACC running in **Borderless Windowed** mode --
+exclusive fullscreen bypasses the desktop compositor, so no window (this
+one or any other) can show on top of it.
+
 ## Building the .exe (do this once, on Windows)
 
 Double-click `build_exe.bat` (or run it from a terminal). It creates a
