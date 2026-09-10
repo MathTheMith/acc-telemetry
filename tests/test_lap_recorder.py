@@ -1,4 +1,4 @@
-from acc_telemetry.lap_recorder import MIN_SAMPLES_FOR_LAP, LapRecorder
+from acc_telemetry.lap_recorder import MAX_LAP_TIME_MS, MIN_SAMPLES_FOR_LAP, LapRecorder
 from acc_telemetry.sample import Sample
 
 
@@ -77,6 +77,13 @@ def test_best_lap_ignores_invalid_laps():
     best = rec.best_lap
     assert best is not None
     assert best.lap_time_ms == 93_000
+
+
+def test_bogus_lap_time_over_an_hour_is_dropped():
+    rec = LapRecorder()
+    lap = drive_lap(rec, last_time_ms=MAX_LAP_TIME_MS + 1)
+    assert lap is None
+    assert rec.completed_laps == []
 
 
 def test_best_lap_is_none_with_no_valid_laps():

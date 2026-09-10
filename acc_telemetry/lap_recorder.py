@@ -16,6 +16,8 @@ from .sample import Sample
 WRAP_HIGH = 0.9
 WRAP_LOW = 0.15
 MIN_SAMPLES_FOR_LAP = 30  # guards against spurious wraps (e.g. teleport in pits)
+MAX_LAP_TIME_MS = 60 * 60 * 1000  # 1h -- ACC reports a bogus huge last_time_ms
+# after a mid-lap quit/reset; drop those instead of polluting the lap list
 
 
 @dataclass
@@ -71,9 +73,14 @@ class LapRecorder:
         self._prev_norm_pos = s.norm_pos
         return finished_lap
 
-    def _finalize_lap(self, s: Sample) -> Lap:
-        self._lap_counter += 1
+    def _finalize_lap(self, s: Sample) -> Optional[Lap]:
         finished = self._buffer
+        self._buffer = Lap()
+
+        if s.last_time_ms > MAX_LAP_TIME_MS:
+            return None
+
+        self._lap_counter += 1
         finished.number = self._lap_counter
         finished.lap_time_ms = s.last_time_ms
         finished.valid = self._last_valid_flag
@@ -85,7 +92,6 @@ class LapRecorder:
             t0 = finished.t[0]
             finished.t = [t - t0 for t in finished.t]
         self.completed_laps.append(finished)
-        self._buffer = Lap()
         return finished
 
     @property
