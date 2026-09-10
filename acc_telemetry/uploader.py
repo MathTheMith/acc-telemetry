@@ -4,10 +4,10 @@ Fire-and-forget: if the server isn't reachable, this just logs and moves on
 -- the lap is still safe on disk via SessionStore, so nothing is lost, and
 the live app never depends on the server to keep working.
 
-The target defaults to a server running on the same machine (server/app.py
-directly), but the dashboard is typically deployed on a VPS instead (see
-docker-compose.yml) -- point this at it with the ACC_SERVER_URL env var,
-e.g. ACC_SERVER_URL=http://<VPS_IP>:8081/api/laps
+The target defaults to the Docker Compose stack (see docker-compose.yml)
+running on the same machine, i.e. Nginx on port 8081 proxying /api/* to the
+backend. If the dashboard is deployed on a VPS instead, point this at it
+with the ACC_SERVER_URL env var, e.g. ACC_SERVER_URL=http://<VPS_IP>:8081/api/laps
 
 If the server has an API_KEY configured (see backend/app.py), set the
 matching ACC_API_KEY env var here so uploads aren't rejected with 401.
@@ -21,7 +21,7 @@ import urllib.request
 
 from .lap_recorder import Lap
 
-DEFAULT_URL = os.environ.get("ACC_SERVER_URL", "http://127.0.0.1:5000/api/laps")
+DEFAULT_URL = os.environ.get("ACC_SERVER_URL", "http://127.0.0.1:8081/api/laps")
 
 
 class LapUploader:
