@@ -680,17 +680,75 @@
     return {minX,maxX,minY,maxY};
   }
 
+  // Per-track background map image, hand-calibrated once against a real
+  // recorded lap: rotationDeg/scale/flipX/telCentroid/imgCentroid map
+  // telemetry (x,z) onto the image's own pixel space (see telToImg below).
+  // Tracks without an entry here just fall back to the old "fit the driven
+  // line itself" behaviour.
+  const TRACK_MAPS = {
+    "Barcelona": {
+      image: "track_maps/barcelona.png",
+      imgWidth: 2394, imgHeight: 750,
+      rotationDeg: 56.67638385976816,
+      scale: 1.7186237518314618,
+      flipX: false,
+      telCentroid: [4.59680378604638, 28.458305641452924],
+      imgCentroid: [1180.9919310129817, 403.9193221236728],
+    },
+  };
+  const trackImageCache = {};
+  function getTrackImage(src){
+    if(!trackImageCache[src]){
+      const img = new Image();
+      img.onload = () => render();
+      img.src = src;
+      trackImageCache[src] = img;
+    }
+    return trackImageCache[src];
+  }
+  function telToImg(cal, x, z){
+    const rad = cal.rotationDeg * Math.PI/180;
+    const c = Math.cos(rad), s = Math.sin(rad);
+    let nx = x - cal.telCentroid[0];
+    let nz = z - cal.telCentroid[1];
+    if(cal.flipX) nx = -nx;
+    return [
+      cal.imgCentroid[0] + cal.scale*(nx*c - nz*s),
+      cal.imgCentroid[1] + cal.scale*(nx*s + nz*c),
+    ];
+  }
+
   // Base "fit everything" transform, shared by drawMap and the pointer
   // interaction code below (which needs to invert it to turn a mouse
-  // position back into world coordinates for hit-testing).
+  // position back into world coordinates for hit-testing). When a
+  // TRACK_MAPS entry exists for the selected lap's track, this fits the
+  // background image instead of the driven line's own bounding box, so the
+  // image and trajectory share one consistent projection.
   function mapBaseTransform(W, H){
+    const cal = selectedSummary && TRACK_MAPS[selectedSummary.track];
+    const pad = 24;
+    if(cal){
+      const scale = Math.min((W-2*pad)/cal.imgWidth, (H-2*pad)/cal.imgHeight);
+      const ox = (W - cal.imgWidth*scale)/2;
+      const oy = (H - cal.imgHeight*scale)/2;
+      return {ox, oy, scale, cal};
+    }
     const laps = [selectedDetail].concat((showGhost && bestDetail) ? [bestDetail] : []);
     const {minX,maxX,minY,maxY} = mapBounds(laps);
-    const pad = 28;
     const scale = Math.min((W-2*pad)/Math.max(1,maxX-minX), (H-2*pad)/Math.max(1,maxY-minY));
     const ox = (W - (maxX-minX)*scale)/2 - minX*scale;
     const oy = (H - (maxY-minY)*scale)/2 - minY*scale;
-    return {ox, oy, scale};
+    return {ox, oy, scale, cal:null};
+  }
+
+  // World (telemetry x,z) -> unzoomed/unpanned canvas pixels, using
+  // whichever base transform is active (image-calibrated or fit-to-line).
+  function worldToBasePixel(t, x, y){
+    if(t.cal){
+      const [ix,iy] = telToImg(t.cal, x, y);
+      return [t.ox + ix*t.scale, t.oy + iy*t.scale];
+    }
+    return [t.ox + x*t.scale, t.oy + y*t.scale];
   }
 
   function drawMap(){
@@ -699,11 +757,20 @@
     const W = rect.width, H = rect.height;
     mapCtx.clearRect(0,0,W,H);
 
-    const {ox, oy, scale} = mapBaseTransform(W, H);
-    const proj = (x,y) => [
-      (ox + x*scale) * mapView.zoom + mapView.panX,
-      (oy + y*scale) * mapView.zoom + mapView.panY,
-    ];
+    const t = mapBaseTransform(W, H);
+    const proj = (x,y) => {
+      const [bx,by] = worldToBasePixel(t, x, y);
+      return [bx*mapView.zoom + mapView.panX, by*mapView.zoom + mapView.panY];
+    };
+
+    if(t.cal){
+      const img = getTrackImage(t.cal.image);
+      if(img.complete && img.naturalWidth){
+        const x0 = t.ox*mapView.zoom + mapView.panX;
+        const y0 = t.oy*mapView.zoom + mapView.panY;
+        mapCtx.drawImage(img, x0, y0, t.cal.imgWidth*t.scale*mapView.zoom, t.cal.imgHeight*t.scale*mapView.zoom);
+      }
+    }
 
     function drawLap(lap, alpha, baseWidth){
       const s = lap.samples;
@@ -1159,9 +1226,9 @@
     if(!selectedDetail) return null;
     let best=null, bestD=Infinity;
     const rect = mapCanvas.getBoundingClientRect();
-    const {ox, oy, scale} = mapBaseTransform(rect.width, rect.height);
+    const t = mapBaseTransform(rect.width, rect.height);
     selectedDetail.samples.forEach(s => {
-      const sx = ox + s.x*scale, sy = oy + s.z*scale;
+      const [sx, sy] = worldToBasePixel(t, s.x, s.z);
       const d = (sx-px)*(sx-px) + (sy-py)*(sy-py);
       if(d<bestD){ bestD=d; best=s; }
     });
