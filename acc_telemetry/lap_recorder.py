@@ -84,6 +84,12 @@ class LapRecorder:
         finished.number = self._lap_counter
         finished.lap_time_ms = s.last_time_ms
         finished.valid = self._last_valid_flag
+        # Some layouts (e.g. Nurburgring 24h) report more than 3 sector
+        # crossings, which desyncs the sector-N -> time mapping (the
+        # dashboard always expects exactly 3). Rather than showing a
+        # nonsense/zeroed sector, drop the mismatched split entirely.
+        if len(finished.sectors_ms) != 3:
+            finished.sectors_ms = []
         # Sample.t is a session-wide clock (seconds since the app started),
         # not lap-relative -- rebase to 0 here so every consumer (CSV export,
         # the web dashboard's pace/delta charts) gets a plain per-lap

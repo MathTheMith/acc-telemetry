@@ -86,6 +86,22 @@ def test_bogus_lap_time_over_an_hour_is_dropped():
     assert rec.completed_laps == []
 
 
+def test_sectors_are_dropped_when_not_exactly_three():
+    rec = LapRecorder()
+    n = MIN_SAMPLES_FOR_LAP + 5
+    for i in range(n):
+        pos = 0.05 + (i / n) * 0.9
+        # 4 distinct sector indices instead of the usual 3 (e.g. Nurburgring
+        # 24h reporting an extra split) -- sectors_ms ends up with 4 entries.
+        sector = min(int(pos * 4), 3)
+        rec.add_sample(make_sample(
+            t=float(i), norm_pos=pos, current_sector_index=sector, last_sector_time_ms=1000
+        ))
+    lap = rec.add_sample(make_sample(t=float(n), norm_pos=0.02, current_sector_index=0, last_time_ms=90_000))
+    assert lap is not None
+    assert lap.sectors_ms == []
+
+
 def test_best_lap_is_none_with_no_valid_laps():
     rec = LapRecorder()
     assert rec.best_lap is None
