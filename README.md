@@ -80,6 +80,18 @@ make restore FILE=backups/telemetry-xxx.db   # restore
 make reset       # remove everything (including the database) then restart
 ```
 
+### Automatic backups
+
+`make backup` is manual -- schedule it so you don't have to remember. On
+the machine hosting the site (must have `docker compose` and this repo
+checked out), add a nightly cron entry:
+
+```bash
+crontab -e
+# add this line (4am daily, adjust the path to where the repo actually is):
+0 4 * * * cd /path/to/acc-telemetry && make backup >> backups/backup.log 2>&1
+```
+
 ### Access from another device (optional)
 
 If the site runs on a remote server rather than locally, open
@@ -178,9 +190,10 @@ python main.py --mini
 A small, borderless, always-on-top window with just the scrolling
 throttle/brake trace -- meant to sit on screen while you drive, like a
 simracing HUD widget. Drag anywhere to move it, drag the bottom-right
-corner to resize, click the ✕ to close. Lap recording and upload to the
-dashboard keep working exactly as in the full window, only the UI changes.
-`run_mini.bat` launches it directly (double-click, no terminal needed).
+corner to resize, click the ✕ to close; its position and size are
+remembered for next time. Lap recording and upload to the dashboard keep
+working exactly as in the full window, only the UI changes.
+`run_mini.bat` launches it directly (double-click, no console window).
 
 Note: this only overlays ACC running in **Borderless Windowed** mode --
 exclusive fullscreen bypasses the desktop compositor, so no window (this

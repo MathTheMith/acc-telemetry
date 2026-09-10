@@ -49,6 +49,11 @@ class OverlayWindow(QtWidgets.QWidget):
         self.resize(320, 130)
         self._build_ui()
 
+        self._settings = QtCore.QSettings("AccTelemetry", "MiniOverlay")
+        saved_geometry = self._settings.value("geometry")
+        if saved_geometry is not None:
+            self.restoreGeometry(saved_geometry)
+
         self._timer = QtCore.QTimer(self)
         self._timer.timeout.connect(self._tick)
         self._timer.start(REFRESH_MS)
@@ -148,5 +153,6 @@ class OverlayWindow(QtWidgets.QWidget):
         self._drag_pos = None
 
     def closeEvent(self, event) -> None:
+        self._settings.setValue("geometry", self.saveGeometry())
         self.reader.close()
         super().closeEvent(event)
