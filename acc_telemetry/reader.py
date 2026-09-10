@@ -70,8 +70,8 @@ class AccReader:
             in_pit=g.is_in_pit,
             in_pit_lane=g.is_in_pit_lane,
             status=g.status.name,
-            track=s.track,
-            car_model=s.car_model,
+            track=s.track.split("\x00", 1)[0],
+            car_model=s.car_model.split("\x00", 1)[0],
         )
 
     def close(self) -> None:
