@@ -97,15 +97,14 @@ def list_laps():
     track = request.args.get("track")
     car = request.args.get("car")
     query = "SELECT * FROM laps"
-    conditions, params = [], []
+    conditions, params = ["valid = 1"], []
     if track:
         conditions.append("track = ?")
         params.append(track)
     if car:
         conditions.append("car = ?")
         params.append(car)
-    if conditions:
-        query += " WHERE " + " AND ".join(conditions)
+    query += " WHERE " + " AND ".join(conditions)
     query += " ORDER BY recorded_at DESC"
 
     rows = get_db().execute(query, params).fetchall()
@@ -114,7 +113,9 @@ def list_laps():
 
 @app.route("/api/tracks", methods=["GET"])
 def list_tracks():
-    rows = get_db().execute("SELECT DISTINCT track, car FROM laps ORDER BY track, car").fetchall()
+    rows = get_db().execute(
+        "SELECT DISTINCT track, car FROM laps WHERE valid = 1 ORDER BY track, car"
+    ).fetchall()
     return jsonify([{"track": r["track"], "car": r["car"]} for r in rows])
 
 
