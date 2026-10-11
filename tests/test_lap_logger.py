@@ -18,7 +18,8 @@ def make_sample(**overrides) -> Sample:
 
 
 class FakeUploads(list):
-    def __call__(self, lap, track, car):
+    def __call__(self, lap, track, car, session_id):
+        assert session_id.endswith(track)
         self.append((lap.number, track, car))
 
 

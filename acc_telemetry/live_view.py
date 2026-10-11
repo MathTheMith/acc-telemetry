@@ -222,7 +222,9 @@ class TelemetryWindow(QtWidgets.QMainWindow):
             self.session_store.save_lap(lap)
             track, car = self.session_store.track, self.session_store.car
             threading.Thread(
-                target=self.uploader.upload, args=(lap, track, car), daemon=True
+                target=self.uploader.upload,
+                args=(lap, track, car, self.session_store.dir.name),
+                daemon=True,
             ).start()
         label = f"Lap {lap.number} - {format_lap_time(lap.lap_time_ms)}"
         if not lap.valid:

@@ -18,14 +18,14 @@ from .uploader import LapUploader
 NEW_SESSION_AFTER_S = 10 * 60
 
 
-def upload_in_background(uploader: LapUploader) -> Callable[[Lap, str, str], None]:
-    def upload(lap: Lap, track: str, car: str) -> None:
-        threading.Thread(target=uploader.upload, args=(lap, track, car), daemon=True).start()
+def upload_in_background(uploader: LapUploader) -> Callable[[Lap, str, str, str], None]:
+    def upload(lap: Lap, track: str, car: str, session_id: str) -> None:
+        threading.Thread(target=uploader.upload, args=(lap, track, car, session_id), daemon=True).start()
     return upload
 
 
 class LapLogger:
-    def __init__(self, sessions_dir: str, upload: Optional[Callable[[Lap, str, str], None]] = None):
+    def __init__(self, sessions_dir: str, upload: Optional[Callable[[Lap, str, str, str], None]] = None):
         self.sessions_dir = sessions_dir
         self.upload = upload if upload is not None else upload_in_background(LapUploader())
         self.recorder = LapRecorder()
@@ -55,7 +55,7 @@ class LapLogger:
             self.store = SessionStore(self.sessions_dir, track=self.track, car=self.car)
         self.store.save_lap(lap)
         self.laps_saved += 1
-        self.upload(lap, self.track, self.car)
+        self.upload(lap, self.track, self.car, self.store.dir.name)
         return lap
 
     def _new_session(self, track: str, car: str) -> None:

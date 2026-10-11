@@ -226,6 +226,26 @@ uploading to it, so a lap is never recorded twice.
 variables (System settings > Environment variables) for the recorder to
 see them, since it isn't started from a terminal.
 
+### Sending lap results to Life OS (optional)
+
+Each lap's result can also go to Life OS, my private personal dashboard,
+whose AI chat then follows pace and consistency over time. Only
+the result is sent: track, car, lap time and whether the lap was valid.
+No telemetry trace leaves the machine.
+
+1. Set two Windows user environment variables:
+   ```
+   LIFEOS_URL=https://<your Life OS>/api/sim-laps
+   LIFEOS_TOKEN=<its TELEMETRY_TOKEN>
+   ```
+2. Send the laps already saved in `sessions/` once:
+   ```
+   python scripts/import_to_lifeos.py
+   ```
+   Safe to re-run, laps already there are skipped.
+3. From then on, every new lap is sent as soon as it's finished, by the
+   recorder, the mini overlay or the full window.
+
 ### Mini overlay (throttle/brake only, on top while driving)
 
 ```

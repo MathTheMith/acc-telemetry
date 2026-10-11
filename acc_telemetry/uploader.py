@@ -18,8 +18,10 @@ import json
 import os
 import urllib.error
 import urllib.request
+from datetime import datetime
 
 from .lap_recorder import Lap
+from .lifeos import lap_result, send_lap_results
 
 DEFAULT_URL = os.environ.get("ACC_SERVER_URL", "http://127.0.0.1:8081/api/laps")
 
@@ -30,7 +32,12 @@ class LapUploader:
         self.timeout = timeout
         self.api_key = os.environ.get("ACC_API_KEY", "").strip()
 
-    def upload(self, lap: Lap, track: str, car: str) -> bool:
+    def upload(self, lap: Lap, track: str, car: str, session_id: str = "") -> bool:
+        # Life OS gets only the lap's result, and only if configured (see lifeos.py).
+        if session_id:
+            send_lap_results([lap_result(
+                session_id, lap.number, track, car, lap.lap_time_ms, lap.valid, datetime.now()
+            )])
         payload = {
             "track": track,
             "car": car,

@@ -138,7 +138,9 @@ class OverlayWindow(QtWidgets.QWidget):
         self.session_store.save_lap(lap)
         track, car = self.session_store.track, self.session_store.car
         threading.Thread(
-            target=self.uploader.upload, args=(lap, track, car), daemon=True
+            target=self.uploader.upload,
+            args=(lap, track, car, self.session_store.dir.name),
+            daemon=True,
         ).start()
 
     # ------------------------------------------------------ drag to move --
