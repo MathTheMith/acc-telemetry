@@ -15,6 +15,9 @@ from pathlib import Path
 from PyQt5 import QtCore, QtGui, QtWidgets
 
 from .lap_logger import LapLogger
+from .uploader import DEFAULT_URL
+
+DASHBOARD_URL = DEFAULT_URL.removesuffix("/api/laps")
 
 FAST_POLL_MS = 33     # same sampling rate as the windows while driving
 IDLE_POLL_MS = 10000  # ACC closed for a while: check every 10 s
@@ -51,10 +54,12 @@ class BackgroundRecorder(QtCore.QObject):
         if QtWidgets.QSystemTrayIcon.isSystemTrayAvailable():
             self.tray = QtWidgets.QSystemTrayIcon(self._icon_idle)
             menu = QtWidgets.QMenu()
+            menu.addAction("Open dashboard", self._open_dashboard)
             menu.addAction("Open sessions folder", self._open_sessions_dir)
             menu.addSeparator()
             menu.addAction("Quit recorder", QtWidgets.QApplication.quit)
             self.tray.setContextMenu(menu)
+            self.tray.activated.connect(self._on_tray_activated)
             self.tray.show()
 
         self._timer = QtCore.QTimer(self)
@@ -90,6 +95,15 @@ class BackgroundRecorder(QtCore.QObject):
                 f"ACC Telemetry recorder: {'recording' if connected else 'waiting for ACC'}\n"
                 f"{self.logger.laps_saved} laps saved"
             )
+
+    def _on_tray_activated(self, reason: QtWidgets.QSystemTrayIcon.ActivationReason) -> None:
+        # Trigger = single left click on Windows; DoubleClick is included too
+        # in case the platform only reports that one.
+        if reason in (QtWidgets.QSystemTrayIcon.Trigger, QtWidgets.QSystemTrayIcon.DoubleClick):
+            self._open_dashboard()
+
+    def _open_dashboard(self) -> None:
+        QtGui.QDesktopServices.openUrl(QtCore.QUrl(DASHBOARD_URL))
 
     def _open_sessions_dir(self) -> None:
         path = Path(self.sessions_dir).resolve()
