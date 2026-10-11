@@ -8,6 +8,7 @@ from typing import Optional
 import pyqtgraph as pg
 from PyQt5 import QtCore, QtWidgets
 
+from .instance_lock import recorder_running
 from .lap_recorder import Lap, LapRecorder
 from .sample import Sample
 from .session_store import SessionStore, format_lap_time
@@ -216,17 +217,18 @@ class TelemetryWindow(QtWidgets.QMainWindow):
         self.marker_car.setData(x=[lap.x[-1]], y=[lap.z[-1]])
 
     def _on_lap_finished(self, lap: Lap) -> None:
-        self.session_store.save_lap(lap)
+        # The background recorder already saves and uploads this lap.
+        if not recorder_running():
+            self.session_store.save_lap(lap)
+            track, car = self.session_store.track, self.session_store.car
+            threading.Thread(
+                target=self.uploader.upload, args=(lap, track, car), daemon=True
+            ).start()
         label = f"Lap {lap.number} - {format_lap_time(lap.lap_time_ms)}"
         if not lap.valid:
             label += " (invalid)"
         self.lap_list.addItem(label)
         self._refresh_best_ghost()
-
-        track, car = self.session_store.track, self.session_store.car
-        threading.Thread(
-            target=self.uploader.upload, args=(lap, track, car), daemon=True
-        ).start()
 
     def _refresh_best_ghost(self) -> None:
         best = self.recorder.best_lap

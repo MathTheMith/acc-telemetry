@@ -198,6 +198,34 @@ actually driving.
    Double-click a lap to display it on the map instead of live (compared
    against the best lap shown faded in the background).
 
+### Automatic recording (starts with Windows)
+
+So that no lap is ever missed, a background recorder can start with
+Windows and wait for ACC: no window, just a tray icon (orange = waiting
+for ACC, green = recording, hover for the number of laps saved). As soon
+as the car is on track, every lap is saved to `sessions/` and uploaded to
+the dashboard, without launching anything by hand.
+
+- Double-click `install_autostart.bat` once: it adds a shortcut to the
+  Windows Startup folder and starts the recorder right away.
+- `uninstall_autostart.bat` removes it. Right click on the tray icon >
+  "Quit recorder" stops the one currently running.
+- Or run it by hand: `pythonw main.py --background`.
+
+While ACC is closed, it only checks the shared memory every 10 seconds, so
+it costs nothing. It keeps checking fast for 5 minutes after the last data,
+so resuming from a pause doesn't lose the start of the lap. Replays and the pause menu are ignored, and a new session
+folder starts when the track or car changes, or after 10 minutes without
+data. Only one recorder can run at a time.
+
+The mini overlay and the full dashboard can still be opened on top of it
+for the live view: while the recorder runs, they leave the saving and
+uploading to it, so a lap is never recorded twice.
+
+`ACC_SERVER_URL` / `ACC_API_KEY` must be set as Windows user environment
+variables (System settings > Environment variables) for the recorder to
+see them, since it isn't started from a terminal.
+
 ### Mini overlay (throttle/brake only, on top while driving)
 
 ```
@@ -229,9 +257,9 @@ that will run the app.
 
 ## Development
 
-Unit tests cover lap splitting, track-map coloring, session storage, and
-the backend API (`pytest`, see `tests/`). GitHub Actions runs them on
-every push (`.github/workflows/ci.yml`).
+Unit tests cover lap splitting, track-map coloring, session storage, the
+background recorder, and the backend API (`pytest`, see `tests/`). GitHub
+Actions runs them on every push (`.github/workflows/ci.yml`).
 
 ```bash
 pip install -r requirements-test.txt

@@ -4,6 +4,7 @@ Usage:
     python main.py            # real ACC shared memory (Windows + ACC running)
     python main.py --sim      # simulator, no ACC/wheel needed (demo/test)
     python main.py --mini     # small always-on-top throttle/brake overlay
+    python main.py --background  # no window: record every lap, tray icon only
 """
 from __future__ import annotations
 
@@ -32,6 +33,24 @@ def build_reader(use_sim: bool):
     return AccReader()
 
 
+def run_background(args) -> None:
+    from acc_telemetry.background import BackgroundRecorder
+    from acc_telemetry.instance_lock import acquire_recorder_lock
+
+    lock = acquire_recorder_lock()
+    if lock is None:
+        print("The background recorder is already running.")
+        return
+
+    app = QtWidgets.QApplication(sys.argv)
+    app.setQuitOnLastWindowClosed(False)  # no window at all, only the tray icon
+    recorder = BackgroundRecorder(build_reader(args.sim), args.sessions_dir)
+    code = app.exec_()
+    recorder.reader.close()
+    lock.close()
+    sys.exit(code)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -42,9 +61,17 @@ def main() -> None:
         help="small always-on-top throttle/brake overlay instead of the full dashboard",
     )
     parser.add_argument(
+        "--background", action="store_true",
+        help="no window: wait for ACC and record every lap (started with Windows)",
+    )
+    parser.add_argument(
         "--sessions-dir", default="sessions", help="directory where laps are saved"
     )
     args = parser.parse_args()
+
+    if args.background:
+        run_background(args)
+        return
 
     reader = build_reader(args.sim)
     session_store = SessionStore(args.sessions_dir, track="waiting", car="waiting")

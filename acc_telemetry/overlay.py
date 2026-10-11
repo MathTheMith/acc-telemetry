@@ -16,6 +16,7 @@ from typing import Optional
 import pyqtgraph as pg
 from PyQt5 import QtCore, QtGui, QtWidgets
 
+from .instance_lock import recorder_running
 from .lap_recorder import Lap, LapRecorder
 from .session_store import SessionStore
 from .uploader import LapUploader
@@ -132,6 +133,8 @@ class OverlayWindow(QtWidgets.QWidget):
         self.status_dot.setStyleSheet(f"color: {'lightgreen' if connected else 'orange'};")
 
     def _on_lap_finished(self, lap: Lap) -> None:
+        if recorder_running():  # the background recorder already saves and uploads it
+            return
         self.session_store.save_lap(lap)
         track, car = self.session_store.track, self.session_store.car
         threading.Thread(

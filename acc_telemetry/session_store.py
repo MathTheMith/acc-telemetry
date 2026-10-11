@@ -25,8 +25,9 @@ class SessionStore:
     def __init__(self, base_dir: str, track: str = "unknown", car: str = "unknown"):
         stamp = time.strftime("%Y-%m-%d_%H-%M-%S")
         safe_track = (track or "unknown").strip().replace(" ", "_") or "unknown"
+        # Created on the first saved lap, so opening a window without driving
+        # doesn't leave an empty session folder behind.
         self.dir = Path(base_dir) / f"{stamp}_{safe_track}"
-        self.dir.mkdir(parents=True, exist_ok=True)
         self.track = track
         self.car = car
         self._laps_meta = []
@@ -40,6 +41,7 @@ class SessionStore:
     def save_lap(self, lap: Lap) -> Path:
         time_tag = format_lap_time(lap.lap_time_ms).replace(":", "m").replace(".", "-")
         fname = f"lap_{lap.number:03d}_{'valid' if lap.valid else 'invalid'}_{time_tag}s.csv"
+        self.dir.mkdir(parents=True, exist_ok=True)
         path = self.dir / fname
 
         with path.open("w", newline="") as f:
@@ -62,6 +64,8 @@ class SessionStore:
         return path
 
     def _write_summary(self) -> None:
+        if not self._laps_meta:
+            return
         valid_laps = [l for l in self._laps_meta if l["valid"]]
         best = min(valid_laps, key=lambda l: l["lap_time_ms"]) if valid_laps else None
         summary = {
